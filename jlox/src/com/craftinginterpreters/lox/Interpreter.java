@@ -13,6 +13,19 @@ public class Interpreter implements Expr.Visitor<Object>,
   }
 
   @Override
+  public Object visitLogicalExpr(Expr.Logical expr) {
+    Object left = evaluate(expr.left);
+
+    if (expr.operator.type == TokenType.OR) {
+      if (isTruthy(left)) return left; // for or short circuit
+    } else {
+      if (!isTruthy(left)) return left; // for and short circuit
+    }
+
+    return evaluate(expr.right);
+  }
+
+  @Override
   public Object visitGroupingExpr(Expr.Grouping expr) {
     return evaluate(expr.expression);
   }
@@ -91,8 +104,24 @@ public class Interpreter implements Expr.Visitor<Object>,
   }
 
   @Override
+  public Void visitBlockStmt(Stmt.Block stmt) {
+    executeBlock(stmt.statements, new Environment(environment));
+    return null;
+  }
+
+  @Override
   public Void visitExpressionStmt(Stmt.Expression stmt) {
     evaluate(stmt.expression);
+    return null;
+  }
+
+  @Override
+  public Void visitIfStmt(Stmt.If stmt) {
+    if (isTruthy(evaluate(stmt.condition)))
+      execute(stmt.thenBranch);
+    else if (isTruthy(stmt.elseBranch))
+      execute(stmt.elseBranch);
+
     return null;
   }
 
@@ -110,6 +139,15 @@ public class Interpreter implements Expr.Visitor<Object>,
       value = evaluate(stmt.initializer);
 
     environment.define(stmt.name.lexeme, value);
+    return null;
+  }
+
+  @Override
+  public Void visitWhileStmt(Stmt.While stmt) {
+    while (isTruthy(evaluate(stmt.condition))) {
+      execute(stmt.body);
+    }
+
     return null;
   }
 
@@ -139,6 +177,21 @@ public class Interpreter implements Expr.Visitor<Object>,
     stmt.accept(this);
   }
 
+  private void executeBlock(List<Stmt> statements,
+                            Environment environment)
+  {
+    Environment previous = this.environment;
+    try {
+      this.environment = environment;
+
+      for (Stmt statement : statements) {
+        execute(statement);
+      }
+    } finally {
+      this.environment = previous;
+    }
+  }
+
   private Object evaluate(Expr expr) {
     return expr.accept(this);
   }
@@ -165,6 +218,8 @@ public class Interpreter implements Expr.Visitor<Object>,
         text = text.substring(0, text.length() - 2);
       }
       return text;
+    } else if (object instanceof String) {
+      return object.toString().replace("\\n", "\n");
     }
 
     return object.toString();
