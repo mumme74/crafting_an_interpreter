@@ -1,20 +1,34 @@
 package com.craftinginterpreters.lox;
 
+import java.util.ArrayList;
 import java.util.List;
 import static com.craftinginterpreters.lox.TokenType.*;
 
 
 /*
 (*grammar*)
-expression     -> equality ;
+program        -> statement* EOF ;
+declaration    -> varDecl | statement ;
+varDecl        -> "var" IDENTIFIER ( "=" expression )? ";" ;
+statement      -> exprStmt
+                | printStmt ;
+
+exprStmt       -> expression ";" ;
+printStmt      -> "print" expression ";" ;
+
+expression     -> assignment ;
+assignment     -> IDENTIFIER "=" assignment
+                | equality ;
 equality       -> comparison ( ( "!=" | "==" ) comparison )* ;
 comparison     -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
 term           -> factor ( ( "-" | "+" ) factor )* ;
 factor         -> unary ( ( "/" | "*" ) unary )* ;
 unary          -> ( "!" | "-" ) unary
                 | primary ;
-primary        -> NUMBER | STRING | "true" | "false" | "nil"
-                | "(" expression ")" ;
+primary        -> "true" | "false" | "nil"
+                | NUMBER | STRING
+                | "(" expression ")"
+                | IDENTIFIER ;
 */
 
 public class Parser {
@@ -27,12 +41,12 @@ public class Parser {
     this.tokens = tokens;
   }
 
-  Expr parse() {
-    try {
-      return expression();
-    } catch (ParseError error) {
-      return null;
+  List<Stmt> parse() {
+    List<Stmt> statements = new ArrayList<>();
+    while (!isAtEnd()) {
+      statements.add(declaration());
     }
+    return statements;
   }
 
   private boolean isAtEnd() {
@@ -84,9 +98,10 @@ public class Parser {
       if (previous().type == SEMICOLON) return;
 
       switch(peek().type) {
-        case CLASS: case FOR: case FUN: case IF:
-        case PRINT: case RETURN: case WHILE:
-          return;
+      case CLASS: case FOR: case FUN: case IF:
+      case PRINT: case RETURN: case WHILE:
+        return;
+      default: break;
       }
 
       advance();
@@ -95,9 +110,81 @@ public class Parser {
 
 
   // the parser functions from here on
-  // expression     -> equality ;
+  // program        -> statement* EOF ;
+
+
+  // declaration    -> varDecl | statement ;
+  private Stmt declaration() {
+    try {
+      if (match(VAR)) return varDeclaration();
+      return statement();
+    } catch (ParseError error) {
+      syncronize();
+      return null;
+    }
+  }
+
+  // varDecl        -> "var" IDENTIFIER ( "=" expression )? ";" ;
+  private Stmt varDeclaration() {
+    Token name = consume(IDENTIFIER, "Expect ';' after variable declaration.");
+
+    Expr initializer = null;
+    if (match(EQUAL))
+      initializer = expression();
+
+    consume(SEMICOLON, "Expect ';' after variable declaration");
+
+    return new Stmt.Var(name, initializer);
+  }
+
+
+  // statement      -> exprStmt
+  //                 | printStmt ;
+  private Stmt statement() {
+    if (match(PRINT)) return printStatement();
+    return expressionStatement();
+  }
+
+  // exprStmt       -> expression ";" ;
+  private Stmt expressionStatement() {
+    Expr expr = expression();
+    consume(SEMICOLON, "Expect ';' after expression.");
+    return new Stmt.Expression(expr);
+  }
+
+  // printStmt      -> "print" expression ";" ;
+  private Stmt printStatement() {
+    Expr value = expression();
+    consume(SEMICOLON, "Exepct ';' after value.");
+    return new Stmt.Print(value);
+  }
+
+
+
+
+  //expression     -> assignment ;
   private Expr expression() {
-    return equality();
+    return assignment();
+  }
+
+  //  assignment     -> IDENTIFIER "=" assignment
+  //                  | equality ;
+  private Expr assignment() {
+    Expr expr = equality();
+
+    if (match(EQUAL)) {
+      Token equals = previous();
+      Expr value = assignment();
+
+      if (expr instanceof Expr.Variable) {
+        Token name = ((Expr.Variable)expr).name;
+        return new Expr.Assign(name, value);
+      }
+
+      error(equals, "Invalid assignment target");
+    }
+
+    return expr;
   }
 
   // equality       -> comparison ( ( "!=" | "==" ) comparison )* ;
@@ -162,8 +249,10 @@ public class Parser {
     return primary();
   }
 
-  // primary        -> NUMBER | STRING | "true" | "false" | "nil"
-  //                 | "(" expression ")" ;
+  // primary        -> "true" | "false" | "nil"
+  //                 | NUMBER | STRING
+  //                 | "(" expression ")"
+  //                 | IDENTIFIER ;
   private Expr primary() {
     if (match(FALSE)) return new Expr.Literal(false);
     if (match(TRUE)) return new Expr.Literal(true);
@@ -172,6 +261,9 @@ public class Parser {
     if (match(NUMBER, STRING)) {
       return new Expr.Literal(previous().literal);
     }
+
+    if (match(IDENTIFIER))
+      return new Expr.Variable(previous());
 
     if (match(LEFT_PAREN)) {
       Expr expr = expression();
