@@ -96,7 +96,6 @@ public class Parser {
 
   // the parser functions from here on
   // expression     -> equality ;
-
   private Expr expression() {
     return equality();
   }
