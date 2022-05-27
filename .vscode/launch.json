@@ -9,7 +9,9 @@
       "name": "Debug launch with assertions Enabled",
       "request": "launch",
       "mainClass": "com.craftinginterpreters.lox.Lox",
-      "vmArgs": "-ea"
+      "classPaths": ["${workspaceFolder}/jlox/target/classes"],
+      "vmArgs": "-ea",
+      "args": ["lox_code/chapter8.4.lox"]
     }
   ]
 }
