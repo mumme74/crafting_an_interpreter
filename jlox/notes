@@ -1,0 +1,7 @@
+# to build generateAst
+cd jlox/src/com/craftinginterpreters/tool
+mvn -X compile
+
+# to re-run generateAst (another terminal after above has completed)
+cd jlox/target/classes
+java -cp . com.craftinginterpreters.tool.GenerateAst ../../src/com/craftinginterpreters/lox/generated
