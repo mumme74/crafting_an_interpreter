@@ -51,6 +51,21 @@ public class AstPrinter implements Expr.Visitor<String> {
     return null;
   }
 
+  public String visitSetExpr(Expr.Set expr) {
+    // stub
+    return null;
+  }
+
+  public String visitGetExpr(Expr.Get expr) {
+    // stub
+    return null;
+  }
+
+  public String visitThisExpr(Expr.This expr) {
+    // stub
+    return null;
+  }
+
   private String parenthesize(String name, Expr... exprs) {
     StringBuilder builder = new StringBuilder();
 
