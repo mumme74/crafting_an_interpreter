@@ -1,0 +1,49 @@
+print "chapter10_functions.lox";
+
+fun count(n) {
+  if (n > 1) count(n -1);
+  print n;
+}
+
+count(3);
+
+fun add(a, b, c) {
+  print a + b + c;
+}
+add(1, 2, 3);
+
+fun mul(a, b) {
+  print a + b;
+}
+mul(2, 3);
+
+fun sayHi(first, last) {
+  print "Hi, " + first + " " + last + "!";
+}
+sayHi("Dear", "Reader");
+
+print mul;
+print add;
+
+fun cnt(n) {
+  while (n < 100) {
+    if (n == 3) return n;
+    print n;
+    n = n + 1;
+  }
+}
+cnt(1);
+
+fun makeCounter() {
+  var i = 0;
+  fun count() {
+    i = i + 1;
+    print i;
+  }
+
+  return count;
+}
+
+var counter = makeCounter();
+counter();
+counter();
