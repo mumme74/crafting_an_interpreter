@@ -15,7 +15,10 @@
         "lox_code/chapter8.4.lox",
         "lox_code/chapter8.4.lox",
         "lox_code/chapter9_loops_and_ifs.lox",
-        "lox_code/chapter9_fibonacci.lox"
+        "lox_code/chapter9_fibonacci.lox",
+        "lox_code/chapter10_fibonacci.lox",
+        //"lox_code/chapter11_resolver.lox",
+        "lox_code/chapter12_classes.lox"
       ]
     }
   ]

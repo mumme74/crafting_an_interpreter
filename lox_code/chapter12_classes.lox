@@ -1,0 +1,31 @@
+print "chapter12_classes.lox";
+
+class Person {
+  sayName() {
+    print this.name;
+  }
+}
+
+var jane = Person();
+jane.name = "Jane";
+
+var bill = Person();
+bill.name = "Bill";
+
+bill.sayName = jane.sayName;
+bill.sayName(); // whats this?
+
+
+class Cake {
+  init(flavour) { this.flavour = flavour; }
+  taste(adjective) {
+    return "The " + this.flavour + " cake is " +adjective + ".";
+  }
+}
+
+var cake1 = Cake("");
+cake1.flavour = "Chokolate";
+print cake1.taste("delicius");
+
+var cake2 = Cake("princess");
+print cake2.taste("sweet");
