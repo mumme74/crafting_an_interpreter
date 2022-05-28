@@ -18,7 +18,8 @@
         "lox_code/chapter9_fibonacci.lox",
         "lox_code/chapter10_fibonacci.lox",
         //"lox_code/chapter11_resolver.lox",
-        "lox_code/chapter12_classes.lox"
+        "lox_code/chapter12_classes.lox",
+        "lox_code/chapter13_inheritance.lox"
       ]
     }
   ]
