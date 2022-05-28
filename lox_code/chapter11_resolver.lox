@@ -1,0 +1,23 @@
+print "chapter11_resolver.lox";
+
+var a = "global";
+{
+  var a = a; // should trigger error
+}
+
+{
+  fun showA() {
+    print a;
+  }
+
+  showA();
+  var a = "block";
+  showA(); // should still print "global"
+}
+
+fun bad() {
+  var a = "first";
+  var a = "second"; // should trigger error
+}
+
+return "at top level"; // trigger error
