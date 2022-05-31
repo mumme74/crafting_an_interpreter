@@ -277,6 +277,8 @@ static void syncronize() {
       return;
     default: ; // do nothing
     }
+
+    advance();
   }
 }
 
