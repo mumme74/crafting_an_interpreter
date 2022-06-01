@@ -34,4 +34,6 @@ typedef struct {
 void initScanner(const char *source);
 Token scanToken();
 
+extern const char *keywords[];
+
 #endif // CLOX_SCANNER_H

@@ -2,14 +2,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <readline/readline.h>
+#include <readline/history.h>
+
 #include "common.h"
 
 #include "chunk.h"
 #include "debug.h"
 #include "vm.h"
+#include "scanner.h"
+#include "object.h"
 
 
-static char *readFile(const char* path) {
+static char *
+readFile(const char* path) {
   FILE* file = fopen(path, "rb");
   if (file == NULL) {
     fprintf(stderr, "Could not open file \"%s\".\n", path);
@@ -36,7 +42,8 @@ static char *readFile(const char* path) {
   return buffer;
 }
 
-static int runFile(const char* path) {
+static int
+runFile(const char* path) {
   char *source = readFile(path);
   InterpretResult result = interpret(source);
   free(source);
@@ -49,21 +56,58 @@ static int runFile(const char* path) {
   }
 }
 
-static void repl() {
-  char line[1024];
+static char *
+repl_completion_generator(const char *text, int state) {
+  static int list_index, len;
+  const char *name = NULL;
+
+  if (!state) {
+    list_index = 0;
+    len = strlen(text);
+  }
+
+  // complete keywords
+  while((name = keywords[list_index++])) {
+    if (strncmp(name, text, len) == 0)
+      return strdup(name);
+  }
+
+  ValueArray globalKeys = tableKeys(&vm.globals);
+  for (int i = 0; i < globalKeys.count; ++i) {
+    const char *key = AS_CSTRING(globalKeys.values[i]);
+    if (strncmp(key, name, len) == 0)
+      return strdup(key);
+  }
+
+  return NULL;
+}
+
+static char **
+repl_completion(const char *text, int start, int end) {
+  rl_attempted_completion_over = 1;
+  return rl_completion_matches(text, repl_completion_generator);
+}
+
+static void
+repl() {
+  rl_attempted_completion_function = repl_completion;
+  rl_completer_word_break_characters = " .";
+
   for(;;) {
-    printf("> ");
+    char *buffer = readline("> ");
+    if (buffer != NULL) {
+      if (strlen(buffer) > 0) {
+        add_history(buffer);
+        interpret(buffer);
+      }
 
-    if (!fgets(line, sizeof(line), stdin)) {
-      printf("\n");
-      break;
+      free(buffer);
     }
-
-    interpret(line);
   }
 }
 
-int main(int argc, const char *argv[]) {
+int
+main(int argc, const char *argv[]) {
   initVM();
 
   if (argc == 1) {

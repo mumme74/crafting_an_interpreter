@@ -132,3 +132,17 @@ ObjString *tableFindString(Table *table, const char *chars,
     index = (index +1) % table->capacity;
   }
 }
+
+ValueArray tableKeys(const Table *table) {
+  ValueArray array;
+  initValueArray(&array);
+
+  for (Entry *e = table->entries;
+       e && e->key && e != table->entries + table->count;
+       ++e)
+  {
+    writeValueArray(&array, *(Value*)e->key);
+  }
+
+  return array;
+}
