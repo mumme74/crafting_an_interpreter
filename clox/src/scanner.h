@@ -35,5 +35,6 @@ void initScanner(const char *source);
 Token scanToken();
 
 extern const char *keywords[];
+extern const size_t keywordCnt;
 
 #endif // CLOX_SCANNER_H

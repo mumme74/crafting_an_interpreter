@@ -163,6 +163,7 @@ static InterpretResult run() {
 
 
 
+  Chunk chunk;
 void initVM() {
   resetStack();
   vm.objects = NULL;

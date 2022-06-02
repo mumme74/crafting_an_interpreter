@@ -137,11 +137,10 @@ ValueArray tableKeys(const Table *table) {
   ValueArray array;
   initValueArray(&array);
 
-  for (Entry *e = table->entries;
-       e && e->key && e != table->entries + table->count;
-       ++e)
-  {
-    writeValueArray(&array, *(Value*)e->key);
+  for (int i = 0; i < table->capacity; ++i) {
+    Entry *e = &table->entries[i];
+    if (e->key != NULL && !IS_NIL(e->value))
+      writeValueArray(&array, OBJ_VAL(&e->key->obj));
   }
 
   return array;

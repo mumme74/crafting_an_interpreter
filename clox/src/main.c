@@ -58,27 +58,35 @@ runFile(const char* path) {
 
 static char *
 repl_completion_generator(const char *text, int state) {
-  static int list_index, len;
+  static int list_index, globals_index, len;
   const char *name = NULL;
 
   if (!state) {
-    list_index = 0;
+    list_index = globals_index = 0;
     len = strlen(text);
   }
 
   // complete keywords
-  while((name = keywords[list_index++])) {
-    if (strncmp(name, text, len) == 0)
-      return strdup(name);
+  if (list_index < keywordCnt) {
+    while((name = keywords[list_index++])) {
+      if (strncmp(name, text, len) == 0)
+        return strdup(name);
+    }
   }
 
   ValueArray globalKeys = tableKeys(&vm.globals);
-  for (int i = 0; i < globalKeys.count; ++i) {
+  for (int i = 0, m = 0; i < globalKeys.count; ++i) {
     const char *key = AS_CSTRING(globalKeys.values[i]);
-    if (strncmp(key, name, len) == 0)
-      return strdup(key);
+    if (strncmp(key, text, len) == 0) {
+      if (((globals_index) - (m++)) == 0) {
+        globals_index++;
+        freeValueArray(&globalKeys);
+        return strdup(key);
+      }
+    }
   }
 
+  freeValueArray(&globalKeys);
   return NULL;
 }
 

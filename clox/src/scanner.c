@@ -222,7 +222,7 @@ Token scanToken() {
 const char *keywords[] = {
   "and", "class", "else", "false", "for", "fun",
   "if", "nil", "or", "print", "return", "super",
-  "this", "true", "var", "while",
-  NULL
+  "this", "true", "var", "while"
 };
+const size_t keywordCnt = sizeof(keywords) / sizeof(keywords[0]);
 
