@@ -13,7 +13,7 @@ typedef enum {
   VAL_OBJ,
 } ValueType;
 
-typedef struct {
+typedef struct Value {
   union {
     bool boolean;
     double number;
@@ -37,7 +37,7 @@ typedef struct {
 #define OBJ_VAL(value)       ((Value) {{.obj = value},       VAL_OBJ})
 
 
-typedef struct {
+typedef struct ValueArray{
   int count;
   int capacity;
   Value *values;
