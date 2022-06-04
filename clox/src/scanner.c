@@ -81,6 +81,7 @@ static void skipWhitespace() {
         // a comment
         while (peek() != '\n' && !isAtEnd())
           advance();
+        break; // switch
       } else
         return;
     default: return;
