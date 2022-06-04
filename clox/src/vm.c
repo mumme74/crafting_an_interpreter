@@ -47,9 +47,10 @@ static void runtimeError(const char *format, ...) {
   resetStack();
 }
 
-static void defineNative(const char *name, NativeFn function) {
-  push(OBJ_VAL(OBJ_CAST(copyString(name, (int)strlen(name)))));
-  push(OBJ_VAL(OBJ_CAST(newNative(function))));
+static void defineNative(const char *name, NativeFn function, int arity) {
+  ObjString *fnname = copyString(name, (int)strlen(name));
+  push(OBJ_VAL(OBJ_CAST(fnname)));
+  push(OBJ_VAL(OBJ_CAST(newNative(function, fnname, arity))));
   tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
   pop();
   pop();
@@ -79,8 +80,12 @@ static bool callValue(Value callee, int argCount) {
     case OBJ_FUNCTION:
       return call(AS_FUNCTION(callee), argCount);
     case OBJ_NATIVE: {
-      NativeFn native = AS_NATIVE(callee);
-      Value result = native(argCount, vm.stackTop - argCount);
+      ObjNative *nativeObj = AS_NATIVE_OBJ(callee);
+      if (nativeObj->arity != argCount) {
+        runtimeError("%s requires %d arguments.", nativeObj->name, nativeObj->arity);
+        return false;
+      }
+      Value result = nativeObj->function(argCount, vm.stackTop - argCount);
       vm.stackTop -= argCount +1;
       push(result);
       return true;
@@ -283,15 +288,13 @@ static InterpretResult run() {
 // -------------------------------------------------------
 
 
-
-  Chunk chunk;
 void initVM() {
   resetStack();
   vm.objects = NULL;
   initTable(&vm.strings);
   initTable(&vm.globals);
 
-  defineNative("clock", clockNative);
+  defineNative("clock", clockNative, 0);
 }
 
 void freeVM() {

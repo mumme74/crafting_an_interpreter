@@ -13,7 +13,7 @@
         "chapter9_loops_and_ifs.lox",
         "chapter9_fibonacci.lox",
         "chapter10_fibonacci.lox",
-        "chapter24_fibonacci.lox",
+        //"chapter24_fibonacci.lox",
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}/lox_code/",
