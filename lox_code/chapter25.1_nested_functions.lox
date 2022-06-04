@@ -1,0 +1,14 @@
+print "chapter25.1_nested_functions.lox";
+
+var x = "global";
+fun outer() {
+  var x = "outer";
+
+  fun inner() {
+    print x;
+  }
+
+  inner();
+}
+
+outer();
