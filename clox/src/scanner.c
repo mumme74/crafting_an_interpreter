@@ -82,6 +82,14 @@ static void skipWhitespace() {
         while (peek() != '\n' && !isAtEnd())
           advance();
         break; // switch
+      } else if (peekNext() == '*') {
+        char prev = advance(); // the '*' in /*
+        do {
+          prev = c;
+          c = advance();
+          if (c == '\n') scanner.line++;
+        } while(!(prev == '*' && c == '/'));
+        break; // switch
       } else
         return;
     default: return;
