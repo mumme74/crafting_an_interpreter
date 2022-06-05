@@ -26,6 +26,14 @@ static void printFunction(ObjFunction *function) {
   }
   printf("<fn %s>", function->name->chars);
 }
+/*
+static void printClosure(ObjClosure *closure) {
+  if (closure->function->name == NULL) {
+    printFunction(closure->function);
+  } else {
+    printf("<closure to %s>", closure->function->name->chars);
+  }
+}*/
 
 // --------------------------------------------------------
 
@@ -52,9 +60,24 @@ static uint32_t hashString(const char *key, int length) {
 
 // -----------------------------------------------------------
 
+ObjClosure *newClosure(ObjFunction *function) {
+  ObjUpvalue **upvalues = ALLOCATE(ObjUpvalue*,
+                                   function->upvalueCount);
+  for (int i = 0; i < function->upvalueCount; ++i) {
+    upvalues[i] = NULL;
+  }
+
+  ObjClosure *closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+  closure->function = function;
+  closure->upvalues = upvalues;
+  closure->upvalueCount = function->upvalueCount;
+  return closure;
+}
+
 ObjFunction *newFunction() {
   ObjFunction *function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
   function->arity = 0;
+  function->upvalueCount = 0;
   function->name = NULL;
   initChunk(&function->chunk);
   return function;
@@ -66,6 +89,14 @@ ObjNative *newNative(NativeFn function, ObjString *name, int arity) {
   native->arity = arity;
   native->name = name;
   return native;
+}
+
+ObjUpvalue *newUpvalue(Value *slot) {
+  ObjUpvalue *upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
+  upvalue->closed = NIL_VAL;
+  upvalue->location = slot;
+  upvalue->next = NULL;
+  return upvalue;
 }
 
 ObjString *takeString(char *chars, int length) {
@@ -95,6 +126,9 @@ ObjString *copyString(const char *chars, int length) {
 
 void printObject(Value value) {
   switch (OBJ_TYPE(value)) {
+  case OBJ_CLOSURE:
+    //printClosure(AS_CLOSURE(value)); break;
+    printFunction(AS_CLOSURE(value)->function); break;
   case OBJ_FUNCTION:
     printFunction(AS_FUNCTION(value)); break;
   case OBJ_NATIVE:
@@ -102,5 +136,7 @@ void printObject(Value value) {
     break;
   case OBJ_STRING:
     printf("%s", AS_CSTRING(value)); break;
+  case OBJ_UPVALUE:
+    printf("upvalue"); break;
   }
 }

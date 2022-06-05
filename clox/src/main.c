@@ -98,6 +98,7 @@ repl_completion(const char *text, int start, int end) {
 
 static void
 repl() {
+  initVM();
   rl_attempted_completion_function = repl_completion;
   rl_completer_word_break_characters = " .";
 
@@ -112,21 +113,22 @@ repl() {
       free(buffer);
     }
   }
+  freeVM();
 }
 
 int
 main(int argc, const char *argv[]) {
-  initVM();
 
   if (argc == 1) {
     repl();
   } else {
     for (int i = 1; i < argc; i++) {
+      initVM();
       if (!runFile(argv[i]))
         exit(70);
+      freeVM();
     }
   }
 
-  freeVM();
   return 0;
 }

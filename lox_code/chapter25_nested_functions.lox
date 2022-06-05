@@ -1,0 +1,66 @@
+print "chapter25.1_nested_functions.lox";
+
+var x = "global";
+fun outer() {
+  var x = "outer";
+
+  fun inner() {
+    print x;
+  }
+
+  inner();
+}
+
+outer();
+
+// ----------------------------------
+
+fun outer1() {
+  var x = "value";
+
+  fun middle1() {
+    fun inner1() {
+      print x;
+    }
+
+    print "create inner closure";
+    return inner1;
+  }
+
+  print "return from outer";
+  return middle1;
+}
+
+var mid = outer1();
+print mid;
+var in = mid();
+in();
+
+
+
+// ---------------------------------------
+
+fun outer2() {
+  var x = "outside";
+  fun inner2() {
+    print x;
+  }
+  inner2();
+}
+
+outer2();
+
+// --------------------------------------
+fun outer3() {
+  var a = 10; var b = 20;
+  fun middle3() {
+    var c = 3; var d = 4;
+    fun inner3() {
+      print c + d + a + b;
+    }
+    inner3();
+  }
+  middle3();
+}
+
+outer3();
