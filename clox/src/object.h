@@ -30,6 +30,7 @@ typedef enum {
 
 struct Obj {
   ObjType type;
+  bool isMarked;
   struct Obj* next;
 };
 
@@ -78,6 +79,7 @@ ObjUpvalue   *newUpvalue(Value *slot);
 
 ObjString    *takeString(char *chars, int length);
 ObjString    *copyString(const char *chars, int length);
+const char   *typeofObject(Obj* object);
 void printObject(Value value);
 
 static inline bool isObjType(Value value, ObjType type) {

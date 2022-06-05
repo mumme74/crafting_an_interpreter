@@ -13,9 +13,15 @@
 static Obj* allocateObject(size_t size, ObjType type) {
   Obj *object = (Obj*)reallocate(NULL, 0, size);
   object->type = type;
+  object->isMarked = false;
 
   object->next = vm.objects;
   vm.objects = object;
+
+#ifdef DEBUG_LOG_GC
+  printf("%p allocate %zu for %d\n", (void*)object, size, type);
+#endif
+
   return object;
 }
 
@@ -26,16 +32,6 @@ static void printFunction(ObjFunction *function) {
   }
   printf("<fn %s>", function->name->chars);
 }
-/*
-static void printClosure(ObjClosure *closure) {
-  if (closure->function->name == NULL) {
-    printFunction(closure->function);
-  } else {
-    printf("<closure to %s>", closure->function->name->chars);
-  }
-}*/
-
-// --------------------------------------------------------
 
 static ObjString *allocateString(char *chars, int length,
                                  uint32_t hash)
@@ -44,7 +40,9 @@ static ObjString *allocateString(char *chars, int length,
   string->length = length;
   string->chars = chars;
   string->hash = hash;
+  push(OBJ_VAL(OBJ_CAST(string))); // for GC
   tableSet(&vm.strings, string, NIL_VAL);
+  pop(); // for GC
   return string;
 }
 
@@ -122,6 +120,17 @@ ObjString *copyString(const char *chars, int length) {
   memcpy(heapChars, chars, length);
   heapChars[length] = '\0';
   return allocateString(heapChars, length, hash);
+}
+
+const char *typeofObject(Obj* object) {
+  switch (object->type){
+  case OBJ_CLOSURE: return "closure";
+  case OBJ_FUNCTION: return "function";
+  case OBJ_NATIVE: return "function";
+  case OBJ_STRING: return "string";
+  case OBJ_UPVALUE: return "upvalue";
+  }
+  return "undefined";
 }
 
 void printObject(Value value) {

@@ -48,6 +48,7 @@ void initValueArray(ValueArray *array);
 void freeValueArray(ValueArray *array);
 void writeValueArray(ValueArray *array, Value);
 bool valuesEqual(Value a, Value b);
+const char *typeofValue(Value value);
 void printValue(Value value);
 
 #endif // VALUE_H
