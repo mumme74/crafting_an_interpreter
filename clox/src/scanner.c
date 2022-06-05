@@ -67,7 +67,7 @@ static bool isAlpha(char c) {
           c == '_';
 }
 
-static void skipWhitespace() {
+static const char *skipWhitespace() {
   for (;;) {
     char c = peek();
     switch (c) {
@@ -84,15 +84,26 @@ static void skipWhitespace() {
         break; // switch
       } else if (peekNext() == '*') {
         char prev = advance(); // the '*' in /*
+        int nestCount = 0, startLine = scanner.line;
+        const char *startPos = scanner.current+1;
         do {
           prev = c;
           c = advance();
           if (c == '\n') scanner.line++;
-        } while(!(prev == '*' && c == '/'));
+          else if (prev == '/' && c == '*')
+            ++nestCount;
+          else if (prev == '*' && c == '/')
+            --nestCount;
+          else if (isAtEnd()) {
+            scanner.current = startPos;
+            scanner.line = startLine;
+            return "Unmatched '/*'.";
+          }
+        } while (nestCount > 0 && !isAtEnd());
         break; // switch
       } else
-        return;
-    default: return;
+        return NULL;
+    default: return NULL;
     }
   }
 }
@@ -188,7 +199,10 @@ void initScanner(const char *source) {
 }
 
 Token scanToken() {
-  skipWhitespace();
+  const char *failMsg = skipWhitespace();
+  if (failMsg != NULL)
+    return errorToken(failMsg);
+
   scanner.start = scanner.current;
 
   if (isAtEnd()) return makeToken(TOKEN_EOF);
