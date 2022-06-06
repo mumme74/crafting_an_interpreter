@@ -3,15 +3,19 @@ TARGET_EXEC ?= clox
 BUILD_DIR ?= ./build
 SRC_DIRS ?= ./src
 
+PROF_FLAGS := -g -pg
+OPTM_FLAG := -O3
+PROF_FLAGS=
+
 SRCS := $(shell find $(SRC_DIRS) -name *.cpp -or -name *.c -or -name *.s)
 OBJS := $(SRCS:%=$(BUILD_DIR)/%.o)
 DEPS := $(OBJS:.o=.d)
 
 INC_DIRS := $(shell find $(SRC_DIRS) -type d)
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
-
-CPPFLAGS ?= $(INC_FLAGS) -MMD -MP -g -O0 -Wall
-LDFLAGS ?= -lreadline
+#
+CPPFLAGS ?= -g $(PROF_FLAGS) $(OPTM_FLAG) -Wall $(INC_FLAGS) -MMD -MP
+LDFLAGS ?= -lreadline $(PROF_FLAGS)
 
 $(BUILD_DIR)/$(TARGET_EXEC): $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
