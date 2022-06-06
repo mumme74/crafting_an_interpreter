@@ -17,8 +17,8 @@
         //"chapter25_nested_functions.lox",
         //"chapter27_class_properties.lox",
         //"chapter28_methods_initializers.lox",
-        //"chapter29_superclasses.lox",
-        "chapter30_benchmark.lox"
+        "chapter29_superclasses.lox",
+        //"chapter30_benchmark.lox"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}/lox_code/",

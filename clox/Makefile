@@ -3,6 +3,8 @@ TARGET_EXEC ?= clox
 BUILD_DIR ?= ./build
 SRC_DIRS ?= ./src
 
+CC := gcc
+
 PROF_FLAGS := -g -pg
 OPTM_FLAG := -O3
 PROF_FLAGS=
