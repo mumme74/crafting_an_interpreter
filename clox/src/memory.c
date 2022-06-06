@@ -30,8 +30,13 @@ static void freeObject(Obj *object) {
 #endif
 
   switch (object->type) {
-  case OBJ_CLASS:
-    FREE(ObjClass, object); break;
+  case OBJ_BOUND_METHOD:
+    FREE(ObjBoundMethod, object); break;
+  case OBJ_CLASS: {
+    ObjClass *klass = (ObjClass*)object;
+    freeTable(&klass->methods);
+    FREE(ObjClass, klass);
+  } break;
   case OBJ_CLOSURE: {
     ObjClosure *closure = (ObjClosure*)object;
     FREE_ARRAY(ObjUpvalue*, closure->upvalues,
@@ -69,8 +74,15 @@ static void blackenObject(Obj *object, ObjFlags flags) {
 #endif
 
   switch (object->type) {
+  case OBJ_BOUND_METHOD: {
+    ObjBoundMethod *bound = (ObjBoundMethod*)object;
+    markValue(bound->reciever, flags);
+    markObject((Obj*)bound->methods, flags);
+  } break;
   case OBJ_CLASS: {
-    markObject(OBJ_CAST(((ObjClass*)object)->name), flags);
+    ObjClass *klass = (ObjClass*)object;
+    markObject(OBJ_CAST(klass->name), flags);
+    markTable(&klass->methods, flags);
   } break;
   case OBJ_CLOSURE: {
     ObjClosure* closure = (ObjClosure*)object;
@@ -105,6 +117,7 @@ static void markArray(ValueArray* array, ObjFlags flags) {
     markValue(array->values[i], flags);
   }
 }
+
 static void markRoots(ObjFlags flags) {
   for (Value *slot = vm.stack; slot < vm.stackTop; ++slot) {
     markValue(*slot, flags);
@@ -123,6 +136,8 @@ static void markRoots(ObjFlags flags) {
 
   markTable(&vm.globals, flags);
   markCompilerRoots(flags);
+
+  markObject((Obj*)vm.initString, flags);
 }
 
 static void traceReferences(ObjFlags flags) {

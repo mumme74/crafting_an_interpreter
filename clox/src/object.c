@@ -64,9 +64,20 @@ static uint32_t hashString(const char *key, int length) {
 
 // -----------------------------------------------------------
 
+ObjBoundMethod* newBoundMethod(Value reciever,
+                               ObjClosure* method)
+{
+  ObjBoundMethod *bound =
+    ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
+  bound->reciever = reciever;
+  bound->methods = method;
+  return bound;
+}
+
 ObjClass *newClass(ObjString *name) {
   ObjClass *klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
   klass->name = name;
+  initTable(&klass->methods);
   return klass;
 }
 
@@ -143,6 +154,7 @@ ObjString *copyString(const char *chars, int length) {
 
 const char *typeofObject(Obj* object) {
   switch (object->type){
+  case OBJ_BOUND_METHOD: return "bound method";
   case OBJ_CLASS: return "class";
   case OBJ_CLOSURE: return "closure";
   case OBJ_FUNCTION: return "function";
@@ -156,6 +168,9 @@ const char *typeofObject(Obj* object) {
 
 void printObject(Value value) {
   switch (OBJ_TYPE(value)) {
+  case OBJ_BOUND_METHOD:
+    printFunction(AS_BOUND_METHOD(value)->methods->function);
+    break;
   case OBJ_CLASS:
     printf("<class %s>", AS_CLASS(value)->name->chars); break;
   case OBJ_CLOSURE:
