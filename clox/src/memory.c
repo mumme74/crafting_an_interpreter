@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "compiler.h"
 #include "memory.h"
@@ -10,6 +11,9 @@
 # ifndef DEBUG_LOG_GC_MARK
 #  define DEBUG_LOG_GC_MARK 1
 # endif
+# ifndef DEBUG_LOG_GC_FREE
+#  define DEBUG_LOG_GC_FREE 1
+# endif
 #endif
 
 #define GC_HEAP_GROW_FACTOR 2
@@ -19,13 +23,15 @@ static void markArray(ValueArray* array, ObjFlags flags);
 static bool disableGC = false;
 
 static void freeObject(Obj *object) {
-#ifdef DEBUG_LOG_GC
+#if DEBUG_LOG_GC_FREE
   printf("%p free type %s\n", (void*)object, typeofObject(object));
   if (object->type == OBJ_STRING)
     printf("string=%s flags=%x\n", ((ObjString*)object)->chars, object->flags);
 #endif
 
   switch (object->type) {
+  case OBJ_CLASS:
+    FREE(ObjClass, object); break;
   case OBJ_CLOSURE: {
     ObjClosure *closure = (ObjClosure*)object;
     FREE_ARRAY(ObjUpvalue*, closure->upvalues,
@@ -36,6 +42,11 @@ static void freeObject(Obj *object) {
     ObjFunction *function = (ObjFunction*)object;
     freeChunk(&function->chunk);
     FREE(ObjFunction, object);
+  } break;
+  case OBJ_INSTANCE: {
+    ObjInstance *instance = (ObjInstance*)object;
+    freeTable(&instance->fields);
+    FREE(ObjInstance, object);
   } break;
   case OBJ_NATIVE:
     FREE(ObjNative, object); break;
@@ -58,6 +69,9 @@ static void blackenObject(Obj *object, ObjFlags flags) {
 #endif
 
   switch (object->type) {
+  case OBJ_CLASS: {
+    markObject(OBJ_CAST(((ObjClass*)object)->name), flags);
+  } break;
   case OBJ_CLOSURE: {
     ObjClosure* closure = (ObjClosure*)object;
     markObject((Obj*)closure->function, flags);
@@ -69,6 +83,11 @@ static void blackenObject(Obj *object, ObjFlags flags) {
     ObjFunction* function = (ObjFunction*)object;
     markObject((Obj*)function->name, flags);
     markArray(&function->chunk.constants, flags);
+  } break;
+  case OBJ_INSTANCE: {
+    ObjInstance *instance = (ObjInstance*)object;
+    markObject((Obj*)instance->klass, flags);
+    markTable(&instance->fields, flags);
   } break;
   case OBJ_UPVALUE:
     markValue(((ObjUpvalue*)object)->closed, flags);
@@ -125,7 +144,7 @@ static void sweep(Obj** sweepList, ObjFlags flags) {
   Obj *previous = NULL,
       *object = *sweepList;
   while (object != NULL) {
-    if (object->flags | GC_IS_MARKED | GC_IS_MARKED_OLDER) {
+    if ((object->flags & GC_FLAGS) >= flags) {
       object->flags &= ~flags;
       previous = object;
       object = object->next;
@@ -187,7 +206,9 @@ void *reallocate(void *pointer, size_t oldSize, size_t newSize) {
     checkGC();
 
   if (newSize == 0) {
+#if DEBUG_LOG_GC_FREE
     printf("free %p %zu bytes\n", pointer, newSize -oldSize);
+#endif
     free(pointer);
     return NULL;
   }

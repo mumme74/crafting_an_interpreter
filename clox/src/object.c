@@ -7,6 +7,12 @@
 #include "value.h"
 #include "vm.h"
 
+#ifdef DEBUG_LOG_GC
+# ifndef DEBUG_LOG_GC_ALLOC
+#   define DEBUG_LOG_GC_ALLOC 1
+# endif
+#endif
+
 #define ALLOCATE_OBJ(type, objectType) \
   (type*)allocateObject(sizeof(type), objectType)
 
@@ -18,8 +24,8 @@ static Obj* allocateObject(size_t size, ObjType type) {
   object->next = vm.infantObjects;
   vm.infantObjects = object;
 
-#ifdef DEBUG_LOG_GC
-  printf("%p allocate %zu for %d\n", (void*)object, size, type);
+#if DEBUG_LOG_GC_ALLOC
+  printf("%p allocate %zu for %s\n", (void*)object, size, typeofObject(object));
 #endif
 
   return object;
@@ -58,6 +64,12 @@ static uint32_t hashString(const char *key, int length) {
 
 // -----------------------------------------------------------
 
+ObjClass *newClass(ObjString *name) {
+  ObjClass *klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
+  klass->name = name;
+  return klass;
+}
+
 ObjClosure *newClosure(ObjFunction *function) {
   ObjUpvalue **upvalues = ALLOCATE(ObjUpvalue*,
                                    function->upvalueCount);
@@ -79,6 +91,13 @@ ObjFunction *newFunction() {
   function->name = NULL;
   initChunk(&function->chunk);
   return function;
+}
+
+ObjInstance *newInstance(ObjClass *klass) {
+  ObjInstance *instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
+  instance->klass = klass;
+  initTable(&instance->fields);
+  return instance;
 }
 
 ObjNative *newNative(NativeFn function, ObjString *name, int arity) {
@@ -124,8 +143,10 @@ ObjString *copyString(const char *chars, int length) {
 
 const char *typeofObject(Obj* object) {
   switch (object->type){
+  case OBJ_CLASS: return "class";
   case OBJ_CLOSURE: return "closure";
   case OBJ_FUNCTION: return "function";
+  case OBJ_INSTANCE: return "instance";
   case OBJ_NATIVE: return "function";
   case OBJ_STRING: return "string";
   case OBJ_UPVALUE: return "upvalue";
@@ -135,11 +156,17 @@ const char *typeofObject(Obj* object) {
 
 void printObject(Value value) {
   switch (OBJ_TYPE(value)) {
+  case OBJ_CLASS:
+    printf("<class %s>", AS_CLASS(value)->name->chars); break;
   case OBJ_CLOSURE:
     //printClosure(AS_CLOSURE(value)); break;
     printFunction(AS_CLOSURE(value)->function); break;
   case OBJ_FUNCTION:
     printFunction(AS_FUNCTION(value)); break;
+  case OBJ_INSTANCE: {
+    ObjInstance *instance = AS_INSTANCE(value);
+    printf("<%s instance>", instance->klass->name->chars);
+  } break;
   case OBJ_NATIVE:
     printf("<native fn %s>", AS_NATIVE_OBJ(value)->name->chars);
     break;
