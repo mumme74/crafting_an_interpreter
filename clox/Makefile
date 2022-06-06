@@ -6,7 +6,7 @@ SRC_DIRS ?= ./src
 CC := gcc
 
 PROF_FLAGS := -g -pg
-OPTM_FLAG := -O3
+OPTM_FLAG := -O0
 PROF_FLAGS=
 
 SRCS := $(shell find $(SRC_DIRS) -name *.cpp -or -name *.c -or -name *.s)

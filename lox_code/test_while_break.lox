@@ -1,0 +1,41 @@
+print "test_while_break";
+
+var i = 10; var test = true;
+while(i > 0) {
+  print i;
+  if ((i = i -1) == 5)
+    break;
+}
+
+print "i should be 5";
+print i;
+
+i = 2; test = true;
+while(i = i -1 > 0) {
+  print i;
+  if (i > 0)
+    continue;
+  test = false;
+}
+
+print "test should be true";
+print test;
+
+test = true;
+for(i = 0; i < 3; i = i +1) {
+  print i;
+  if (i < 3)
+    continue;
+  test = false;
+}
+
+print "test should be true";
+print test;
+
+for(i = 0; i < 10; i = i +1) {
+  print i;
+  if (i == 5) break;
+}
+
+print "i should be 5";
+print i;

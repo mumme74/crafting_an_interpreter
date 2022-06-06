@@ -151,7 +151,15 @@ static TokenType checkKeyword(int start, int length,
 static TokenType identifierType() {
   switch (scanner.start[0]) {
   case 'a': return checkKeyword(1, 2, "nd", TOKEN_AND);
-  case 'c': return checkKeyword(1, 4, "lass", TOKEN_CLASS);
+  case 'b': return checkKeyword(1, 4, "reak", TOKEN_BREAK);
+  case 'c':
+    if (scanner.current - scanner.start > 1) {
+      switch (scanner.start[1]) {
+      case 'o': return checkKeyword(2, 6, "ntinue", TOKEN_CONTINUE);
+      case 'l': return checkKeyword(2, 3, "ass", TOKEN_CLASS);
+      default: break;
+      }
+    }
   case 'e': return checkKeyword(1, 3, "lse", TOKEN_ELSE);
   case 'f':
     if (scanner.current - scanner.start > 1) {
@@ -243,9 +251,9 @@ Token scanToken() {
 }
 
 const char *keywords[] = {
-  "and", "class", "else", "false", "for", "fun",
-  "if", "nil", "or", "print", "return", "super",
-  "this", "true", "var", "while"
+  "and", "break", "continue", "class", "else", "false",
+  "for", "fun", "if", "nil", "or", "print", "return",
+  "super", "this", "true", "var", "while"
 };
 const size_t keywordCnt = sizeof(keywords) / sizeof(keywords[0]);
 

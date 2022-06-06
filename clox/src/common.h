@@ -17,7 +17,7 @@
 
 //#define NAN_BOXING
 
-#define COMPUTED_GOTO
+//#define COMPUTED_GOTO
 
 #define UINT8_COUNT (UINT8_MAX + 1)
 

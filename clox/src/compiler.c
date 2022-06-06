@@ -110,12 +110,27 @@ typedef enum {
   TYPE_SCRIPT
 } FunctionType;
 
+// this obj is one for each break och continue that needs patching
+// when we now how big the loop is
+typedef struct  PatchJump {
+  int patchPos;
+  struct PatchJump *next;
+} PatchJump;
+
+// this obj is one for each loop
+typedef struct LoopJumps {
+  PatchJump *patchContinue,
+            *patchBreak;
+  struct LoopJumps *next; // in case many nested loops
+} LoopJumps;
+
 typedef struct Compiler {
   struct Compiler* enclosing;
   ObjFunction *function;
   FunctionType type;
   Local locals[UINT8_COUNT];
   Upvalue upvalues[UINT8_COUNT];
+  LoopJumps *loopJumps;
   int localCount,
       scopeDepth;
 } Compiler;
@@ -245,7 +260,7 @@ static void emitConstant(Value value) {
 }
 
 static void patchJump(int offset) {
-  // -2 to adjust for the byteCode for the jup offset itself
+  // -2 to adjust for the byteCode for the jump offset itself
   int jump = currentChunk()->count - offset -2;
 
   if (jump > UINT16_MAX) {
@@ -602,8 +617,32 @@ static void expressionStatement() {
   emitByte(OP_POP);
 }
 
+static void patchLoopGotoJumps(PatchJump** jump, int pos) {
+  PatchJump *jmp = *jump, *freeMe;
+  uint8_t *code = currentChunk()->code;
+
+  while (jmp != NULL) {
+      // -2 to adjust for the byteCode for the jump offset itself
+    int jump = pos - jmp->patchPos -2;
+    if (jump > UINT16_MAX)
+      error("Too much code to jump over.");
+
+    code[jmp->patchPos] = (jump >> 8) & 0xff;
+    code[jmp->patchPos + 1] = jump & 0xff;
+    freeMe = jmp;
+    jmp = jmp->next;
+    FREE(PatchJump, freeMe);
+  }
+}
+
 static void forStatement() {
   beginScope();
+
+  LoopJumps loopJmp;
+  loopJmp.patchBreak = loopJmp.patchContinue = NULL;
+  loopJmp.next = current->loopJumps;
+  current->loopJumps = &loopJmp;
+
   // for (var i = 0; ....)
   consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
   if (match(TOKEN_SEMICOLON)) {
@@ -640,6 +679,7 @@ static void forStatement() {
   }
 
   statement();
+  int continuePos = currentChunk()->count;
   emitLoop(loopStart);
 
   // bail out on false condition
@@ -648,7 +688,11 @@ static void forStatement() {
     emitByte(OP_POP);
   }
 
+  patchLoopGotoJumps(&loopJmp.patchContinue, continuePos);
+  patchLoopGotoJumps(&loopJmp.patchBreak, currentChunk()->count);
+
   endScope();
+  current->loopJumps = loopJmp.next;
 }
 
 static void ifStatement() {
@@ -694,18 +738,31 @@ static void returnStatement() {
 }
 
 static void whileStatement() {
+  LoopJumps loopJmp;
+  loopJmp.patchBreak = loopJmp.patchContinue = NULL;
+  loopJmp.next = current->loopJumps;
+  current->loopJumps = &loopJmp;
+
   int loopStart = currentChunk()->count;
   consume(TOKEN_LEFT_PAREN, "Expect '(' after while.");
   expression();
   consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
-  int exitJump = emitJump(OP_JUMP_IF_FALSE);
+
+  int endJump = emitJump(OP_JUMP_IF_FALSE);
   emitByte(OP_POP);
   statement();
-  emitLoop(loopStart);
 
-  patchJump(exitJump);
+  int continuePos = currentChunk()->count;
+  emitLoop(loopStart);
+  int breakPos = currentChunk()->count;
+
+  patchJump(endJump);
+  patchLoopGotoJumps(&loopJmp.patchContinue, continuePos);
+  patchLoopGotoJumps(&loopJmp.patchBreak, breakPos);
   emitByte(OP_POP);
+
+  current->loopJumps = loopJmp.next;
 }
 
 static void syncronize() {
@@ -806,6 +863,41 @@ static Token syntheticToken(const char* text) {
   token.start = text;
   token.length = (int)strlen(text);
   return token;
+}
+
+static PatchJump *loopGotoJump(const char *errMsg) {
+  if (current->loopJumps == NULL) {
+    errorAtCurrent(errMsg);
+    return NULL;
+  }
+
+  PatchJump *jump = (PatchJump*)ALLOCATE(PatchJump, 1);
+  if (jump == NULL) {
+    error("Could not allocate memory during parsing.");
+    return NULL;
+  }
+
+  jump->next = NULL;
+  jump->patchPos = emitJump(OP_JUMP);
+  return jump;
+}
+
+static void break_(bool canAssign) {
+  (void)canAssign;
+  PatchJump *jump = loopGotoJump("Can't use break outside of loop.");
+  if (jump) {
+    jump->next = current->loopJumps->patchBreak;
+    current->loopJumps->patchBreak = jump;
+  }
+}
+
+static void continue_(bool canAssign) {
+  (void)canAssign;
+  PatchJump *jump = loopGotoJump("Can't use continue outside of loop.");
+  if (jump) {
+    jump->next = current->loopJumps->patchContinue;
+    current->loopJumps->patchContinue = jump;
+  }
 }
 
 static void super_(bool canAssign) {
@@ -945,6 +1037,8 @@ static ParseRule rules[] = {
   [TOKEN_OR]              = {NULL,      or_,    PREC_OR},
   [TOKEN_PRINT]           = {NULL,      NULL,   PREC_NONE},
   [TOKEN_RETURN]          = {NULL,      NULL,   PREC_NONE},
+  [TOKEN_BREAK]           = {break_,    NULL,   PREC_NONE},
+  [TOKEN_CONTINUE]        = {continue_, NULL,   PREC_NONE},
   [TOKEN_SUPER]           = {super_,    NULL,   PREC_NONE},
   [TOKEN_THIS]            = {this_,     NULL,   PREC_NONE},
   [TOKEN_TRUE]            = {literal,   NULL,   PREC_NONE},
@@ -965,6 +1059,7 @@ static void initCompiler(Compiler *compiler, FunctionType type) {
   compiler->type = type;
   compiler->localCount = compiler->scopeDepth = 0;
   compiler->function = newFunction();
+  compiler->loopJumps = NULL;
 
   current = compiler;
   if (type != TYPE_SCRIPT) {
