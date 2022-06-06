@@ -16,7 +16,8 @@
         //"chapter24_fibonacci.lox",
         //"chapter25_nested_functions.lox",
         //"chapter27_class_properties.lox",
-        "chapter28_methods_initializers.lox"
+        //"chapter28_methods_initializers.lox",
+        "chapter29_superclasses.lox"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}/lox_code/",

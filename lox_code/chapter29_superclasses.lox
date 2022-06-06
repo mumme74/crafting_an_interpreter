@@ -1,0 +1,52 @@
+print "chapter29_superclasses.lox";
+
+class Doughnut {
+  cook() {
+    print "Dunk in the frier";
+  }
+}
+
+class Cruller < Doughnut {
+  finish() {
+    print "Glaze with icing";
+  }
+}
+
+var cruller = Cruller();
+cruller.cook();
+cruller.finish();
+
+
+class A {
+  method() { print "A method"; }
+}
+
+class B < A {
+  method() { print "B method"; }
+  test() { super.method(); }
+}
+
+class C < B {}
+C().test();
+
+
+class Doughnut2 {
+  cook() {
+    print "Dunk in the fryer.";
+    this.finish("sprinkels");
+  }
+
+  finish(ingredient) { print "Finish with " + ingredient; }
+}
+
+class Cruller2 < Doughnut2 {
+  finish(ingredient) {
+    // no sprinkles, always icing
+    super.finish("icing");
+  }
+}
+
+var dougnut2 = Doughnut2();
+dougnut2.cook();
+var cruller2 = Cruller2();
+cruller2.cook();
