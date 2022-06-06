@@ -15,11 +15,14 @@
 #define GC_HEAP_GROW_FACTOR 2
 
 // --------------------------------------------------------------
-static void markArray(ValueArray* array);
+static void markArray(ValueArray* array, ObjFlags flags);
+static bool disableGC = false;
 
 static void freeObject(Obj *object) {
 #ifdef DEBUG_LOG_GC
   printf("%p free type %s\n", (void*)object, typeofObject(object));
+  if (object->type == OBJ_STRING)
+    printf("string=%s flags=%x\n", ((ObjString*)object)->chars, object->flags);
 #endif
 
   switch (object->type) {
@@ -47,8 +50,7 @@ static void freeObject(Obj *object) {
 }
 
 // for the GC
-
-static void blackenObject(Obj *object) {
+static void blackenObject(Obj *object, ObjFlags flags) {
 #if DEBUG_LOG_GC_MARK
   printf("%p blacken ", (void*)object);
   printValue(OBJ_VAL(object));
@@ -58,65 +60,73 @@ static void blackenObject(Obj *object) {
   switch (object->type) {
   case OBJ_CLOSURE: {
     ObjClosure* closure = (ObjClosure*)object;
-    markObject((Obj*)closure->function);
+    markObject((Obj*)closure->function, flags);
     for (int i = 0; i < closure->upvalueCount; ++i) {
-      markObject((Obj*)closure->upvalues[i]);
+      markObject((Obj*)closure->upvalues[i], flags);
     }
   } break;
   case OBJ_FUNCTION: {
     ObjFunction* function = (ObjFunction*)object;
-    markObject((Obj*)function->name);
-    markArray(&function->chunk.constants);
+    markObject((Obj*)function->name, flags);
+    markArray(&function->chunk.constants, flags);
   } break;
   case OBJ_UPVALUE:
-    markValue(((ObjUpvalue*)object)->closed);
+    markValue(((ObjUpvalue*)object)->closed, flags);
     break;
   case OBJ_NATIVE:
-    markObject(OBJ_CAST(((ObjNative*)object)->name));
+    markObject(OBJ_CAST(((ObjNative*)object)->name), flags);
     break;
   case OBJ_STRING:
     break;
   }
 }
 
-static void markArray(ValueArray* array) {
+static void markArray(ValueArray* array, ObjFlags flags) {
   for (int i = 0; i < array->count; ++i) {
-    markValue(array->values[i]);
+    markValue(array->values[i], flags);
   }
 }
-static void markRoots() {
+static void markRoots(ObjFlags flags) {
   for (Value *slot = vm.stack; slot < vm.stackTop; ++slot) {
-    markValue(*slot);
+    markValue(*slot, flags);
   }
 
   for (int i = 0; i < vm.frameCount; ++i) {
-    markObject(OBJ_CAST(vm.frames[i].closure));
+    markObject(OBJ_CAST(vm.frames[i].closure), flags);
   }
 
   for (ObjUpvalue *upvalue = vm.openUpvalues;
        upvalue != NULL;
        upvalue = upvalue->next)
   {
-    markObject(OBJ_CAST(upvalue));
+    markObject(OBJ_CAST(upvalue), flags);
   }
 
-  markTable(&vm.globals);
-  markCompilerRoots();
+  markTable(&vm.globals, flags);
+  markCompilerRoots(flags);
 }
 
-static void traceReferences() {
+static void traceReferences(ObjFlags flags) {
   while (vm.grayCount > 0) {
     Obj* object = vm.grayStack[--vm.grayCount];
-    blackenObject(object);
+    blackenObject(object, flags);
   }
 }
 
-static void sweep() {
-  Obj *previous = NULL,
-      *object = vm.objects;
+static void traceOlderReferences(ObjFlags flags) {
+  Obj* object = vm.olderObjects;
   while (object != NULL) {
-    if (object->isMarked) {
-      object->isMarked = false;
+    blackenObject(object, flags | GC_IS_OLDER);
+    object = object->next;
+  }
+}
+
+static void sweep(Obj** sweepList, ObjFlags flags) {
+  Obj *previous = NULL,
+      *object = *sweepList;
+  while (object != NULL) {
+    if (object->flags | GC_IS_MARKED | GC_IS_MARKED_OLDER) {
+      object->flags &= ~flags;
       previous = object;
       object = object->next;
     } else {
@@ -125,7 +135,7 @@ static void sweep() {
       if (previous != NULL) {
         previous->next = object;
       } else {
-        vm.objects = object;
+        *sweepList = object;
       }
 
       freeObject(unreached);
@@ -133,21 +143,51 @@ static void sweep() {
   }
 }
 
+static void moveGenList(Obj** fromList, Obj** toList,
+                        ObjFlags removeFlags, ObjFlags setFlags)
+{
+  Obj **toPtr = *toList != NULL ? &(*toList)->next : toList;
+  if (*fromList) {
+    *toPtr = *fromList;
+    *fromList = NULL;
+  }
+
+  Obj* object = *toList;
+  while (object != NULL) {
+    object->flags &= ~removeFlags;
+    object->flags |= setFlags;
+    object = object->next;
+  }
+
+  vm.olderBytesAllocated = vm.infantBytesAllocated;
+  vm.infantBytesAllocated = 0;
+}
+
+static void checkGC() {
+  if (disableGC) return;
+
+#ifdef DEBUG_STRESS_GC
+  infantGarbageCollect();
+#endif
+
+  if (vm.infantBytesAllocated > vm.infantNextGC) {
+    infantGarbageCollect();
+  }
+}
+
  // ---------------------------------------------------------------
 
 void *reallocate(void *pointer, size_t oldSize, size_t newSize) {
-  vm.bytesAllocated += newSize - oldSize;
-  if (newSize > oldSize) {
-#ifdef DEBUG_STRESS_GC
-    collectGarbage();
-#endif
+  if (pointer != NULL && ((Obj*)pointer)->flags & GC_IS_OLDER)
+    vm.olderBytesAllocated += newSize - oldSize;
+  else
+    vm.infantBytesAllocated += newSize - oldSize;
 
-    if (vm.bytesAllocated > vm.nextGC) {
-      collectGarbage();
-    }
-  }
+  if (newSize > oldSize)
+    checkGC();
 
   if (newSize == 0) {
+    printf("free %p %zu bytes\n", pointer, newSize -oldSize);
     free(pointer);
     return NULL;
   }
@@ -157,16 +197,18 @@ void *reallocate(void *pointer, size_t oldSize, size_t newSize) {
   return result;
 }
 
-void markObject(Obj *object) {
-  if (object == NULL || object->isMarked) return;
+void markObject(Obj *object, ObjFlags flags) {
+  if (object == NULL ||
+      (object->flags & GC_FLAGS) >= flags)
+    return;
 
 #if DEBUG_LOG_GC_MARK
   printf("%p mark ", (void*)object);
   printValue(OBJ_VAL(object));
-  printf("\n");
+  printf("  curFlags:%x setFlags:%x\n", object->flags, flags);
 #endif
 
-  object->isMarked = true;
+  object->flags |= flags;
 
   if (vm.grayCapacity < vm.grayCount +1) {
     vm.grayCapacity = GROW_CAPACITY(vm.grayCapacity);
@@ -181,40 +223,82 @@ void markObject(Obj *object) {
   vm.grayStack[vm.grayCount++] = object;
 }
 
-void markValue(Value value) {
-  if (IS_OBJ(value)) markObject(AS_OBJ(value));
+void markValue(Value value, ObjFlags flags) {
+  if (IS_OBJ(value)) markObject(AS_OBJ(value), flags);
 }
 
 void freeObjects() {
-  Obj *object = vm.objects;
-  while (object != NULL) {
-    Obj *next = object->next;
-    freeObject(object);
-    object = next;
+  Obj *lists[] = { vm.infantObjects, vm.olderObjects };
+
+  for (int i = 0; i < sizeof(lists) / sizeof(lists[0]); ++i) {
+    Obj *object = lists[i];
+    while (object != NULL) {
+      Obj *next = object->next;
+      freeObject(object);
+      object = next;
+    }
   }
 
   free(vm.grayStack);
 }
 
-void collectGarbage() {
+void setGCenabled(bool enable) {
+  disableGC = !enable;
+  if (enable) checkGC();
+}
+
+void infantGarbageCollect() {
 #ifdef DEBUG_LOG_GC
-  printf("-- gc begin\n");
-  size_t before = vm.bytesAllocated;
+  printf("-- gc begin infant collect\n");
+  size_t before = vm.infantBytesAllocated;
 #endif
 
-markRoots();
-traceReferences();
-tableRemoveWhite(&vm.strings);
-sweep();
+  markRoots(GC_IS_MARKED);
+  traceReferences(GC_IS_MARKED);
+  traceOlderReferences(GC_IS_MARKED);
+  tableRemoveWhite(&vm.strings, GC_IS_MARKED);
+  sweep(&vm.infantObjects, GC_IS_MARKED);
+  moveGenList(&vm.infantObjects, &vm.olderObjects,
+              GC_IS_MARKED, GC_IS_OLDER);
 
-vm.nextGC = vm.bytesAllocated * GC_HEAP_GROW_FACTOR;
+#ifdef DEBUG_STRESS_GC_OLDER
+  olderGarbageCollect();
+#endif
+
+  vm.infantNextGC = vm.infantBytesAllocated * GC_HEAP_GROW_FACTOR;
+
+  if (vm.infantBytesAllocated + vm.olderBytesAllocated >
+      vm.infantNextGC + vm.olderNextGC)
+  {
+    olderGarbageCollect();
+  }
 
 #ifdef DEBUG_LOG_GC
-  printf("-- gc end\n");
+  printf("-- gc end infant collect\n");
   printf("   collected %zu bytes (from %zu to %zu) next as %zu\n",
-        before - vm.bytesAllocated, before, vm.bytesAllocated,
-        vm.nextGC);
+        before - vm.infantBytesAllocated, before, vm.infantBytesAllocated,
+        vm.infantNextGC);
 #endif
 }
 
+void olderGarbageCollect() {
+#ifdef DEBUG_LOG_GC
+  printf("-- gc begin older collect\n");
+  size_t before = vm.olderBytesAllocated;
+#endif
+
+markRoots(GC_IS_MARKED_OLDER);
+traceReferences(GC_IS_MARKED_OLDER);
+tableRemoveWhite(&vm.strings, GC_IS_MARKED_OLDER);
+sweep(&vm.olderObjects, GC_IS_MARKED_OLDER);
+
+vm.olderNextGC = vm.olderBytesAllocated * GC_HEAP_GROW_FACTOR;
+
+#ifdef DEBUG_LOG_GC
+  printf("-- gc end older collect\n");
+  printf("   collected older %zu bytes (from %zu to %zu) next as %zu\n",
+        before - vm.olderBytesAllocated, before, vm.olderBytesAllocated,
+        vm.olderNextGC);
+#endif
+}
 

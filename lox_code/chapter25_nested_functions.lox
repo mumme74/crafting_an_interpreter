@@ -54,7 +54,7 @@ outer2();
 fun outer3() {
   var a = 10; var b = 20;
   fun middle3() {
-    var c = 3; var d = 4;
+    var c = 3; var d = 4; var e = "jej"; var f = outer2;
     fun inner3() {
       print c + d + a + b;
     }
@@ -64,3 +64,5 @@ fun outer3() {
 }
 
 outer3();
+
+print "nej";

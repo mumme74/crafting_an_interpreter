@@ -133,20 +133,20 @@ ObjString *tableFindString(Table *table, const char *chars,
   }
 }
 
-void tableRemoveWhite(Table *table) {
+void tableRemoveWhite(Table *table, ObjFlags flags) {
   for (int i = 0; i < table->capacity; ++i) {
     Entry *entry = &table->entries[i];
-    if (entry->key != NULL && !entry->key->obj.isMarked) {
+    if (entry->key != NULL && !(entry->key->obj.flags & flags)) {
       tableDelete(table, entry->key);
     }
   }
 }
 
-void markTable(Table *table) {
+void markTable(Table *table, ObjFlags flags) {
   for (int i = 0; i < table->capacity; ++i) {
     Entry *entry = &table->entries[i];
-    markObject(OBJ_CAST(entry->key));
-    markValue(entry->value);
+    markObject(OBJ_CAST(entry->key), flags);
+    markValue(entry->value, flags);
   }
 }
 

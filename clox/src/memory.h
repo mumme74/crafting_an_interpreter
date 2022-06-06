@@ -21,9 +21,11 @@
   reallocate(pointer, sizeof(type) * (oldCount), 0);
 
 void *reallocate(void *pointer, size_t oldSize, size_t newSize);
-void markObject(Obj *object);
-void markValue(Value value);
-void collectGarbage();
+void markObject(Obj *object, ObjFlags flags);
+void markValue(Value value, ObjFlags flags);
+void setGCenabled(bool enable);
+void infantGarbageCollect();
+void olderGarbageCollect();
 void freeObjects();
 
 #endif // MEMORY_H

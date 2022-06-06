@@ -6,6 +6,6 @@
 #include "vm.h"
 
 ObjFunction *compile(const char *source);
-void markCompilerRoots();
+void markCompilerRoots(ObjFlags flags);
 
 #endif // CLOX_COMPILER_H

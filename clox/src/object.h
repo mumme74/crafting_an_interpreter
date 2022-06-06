@@ -20,6 +20,14 @@
 #define AS_STRING(value)           ((ObjString*)AS_OBJ(value))
 #define AS_CSTRING(value)          (((ObjString*)AS_OBJ(value))->chars)
 
+// Object lags
+#define GC_FLAGS                   0x07
+#define GC_IS_MARKED               0x01
+#define GC_IS_OLDER                0x02
+#define GC_IS_MARKED_OLDER         0x04
+
+typedef uint8_t ObjFlags;
+
 typedef enum {
   OBJ_CLOSURE,
   OBJ_FUNCTION,
@@ -30,7 +38,7 @@ typedef enum {
 
 struct Obj {
   ObjType type;
-  bool isMarked;
+  ObjFlags flags;
   struct Obj* next;
 };
 

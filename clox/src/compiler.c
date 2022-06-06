@@ -868,10 +868,10 @@ ObjFunction *compile(const char *source) {
   return parser.hadError ? NULL : function;
 }
 
-void markCompilerRoots() {
+void markCompilerRoots(ObjFlags flags) {
   Compiler *compiler = current;
   while (compiler != NULL) {
-    markObject(OBJ_CAST(compiler->function));
+    markObject(OBJ_CAST(compiler->function), flags);
     compiler = compiler->enclosing;
   }
 

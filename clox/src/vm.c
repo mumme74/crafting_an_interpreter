@@ -337,19 +337,26 @@ static InterpretResult run() {
 }
 
 
+static void defineBuiltins() {
+  // all builtin functions
+  defineNative("clock", clockNative, 0);
+}
+
 // -------------------------------------------------------
 
 
 void initVM() {
   resetStack();
-  vm.objects = NULL;
-  vm.bytesAllocated = 0;
-  vm.nextGC = 1024 * 1024;
+  vm.infantObjects = vm.olderObjects = NULL;
+  vm.infantBytesAllocated = 0;
+  vm.olderBytesAllocated = 0;
+  vm.infantNextGC = 1024 * 1024;
+  vm.olderNextGC = vm.infantNextGC * 10;
 
   initTable(&vm.strings);
   initTable(&vm.globals);
 
-  defineNative("clock", clockNative, 0);
+  defineBuiltins();
 }
 
 void freeVM() {
@@ -359,13 +366,16 @@ void freeVM() {
 }
 
 InterpretResult interpret(const char *source) {
+  setGCenabled(false);
   ObjFunction *function = compile(source);
   if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
-  push(OBJ_VAL(OBJ_CAST(function)));
+  //push(OBJ_VAL(OBJ_CAST(function)));
   ObjClosure *closure = newClosure(function);
-  pop();
+  //pop();
   push(OBJ_VAL(OBJ_CAST(closure)));
+  setGCenabled(true);
+
   call(closure, 0);
 
   return run();
