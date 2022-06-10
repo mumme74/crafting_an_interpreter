@@ -1,6 +1,6 @@
 print "test_while_break";
 
-var i = 10; var test = true;
+var i = 10; var j = 0; var cnt = 0; var test = true;
 while(i > 0) {
   print i;
   if ((i = i -1) == 5)
@@ -39,3 +39,38 @@ for(i = 0; i < 10; i = i +1) {
 
 print "i should be 5";
 print i;
+
+j = 0; var cnt = 0;
+for (i = 0; i < 10; i = i +1) {
+  if (i == 5)
+    break;
+  for (j = 0; j < 10; j = j +1) {
+    if (j == 5)
+      break;
+    cnt = cnt +1;
+  }
+}
+
+print "cnt should be 25";
+print (cnt == 25);
+print cnt;
+
+i = 0; cnt = 0;
+while (i < 10) {
+  print "outer";
+  if (i == 5)
+    break;
+  j = 0;
+  while (j < 10) {
+    print "inner";
+    j = j + 1;
+    if (j < 6)
+      continue;
+    cnt = cnt +1;
+  }
+  i = i +1;
+}
+
+print "cnt should be 25";
+print (cnt == 25);
+print cnt;

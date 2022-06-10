@@ -622,13 +622,24 @@ static void patchLoopGotoJumps(PatchJump** jump, int pos) {
   uint8_t *code = currentChunk()->code;
 
   while (jmp != NULL) {
+    int jump;
+
+    // jump backwards
+    if (pos < jmp->patchPos) {
+      code[jmp->patchPos -1] = OP_LOOP;
+      jump = jmp->patchPos - pos + 2;
+    } else
       // -2 to adjust for the byteCode for the jump offset itself
-    int jump = pos - jmp->patchPos -2;
+      jump = pos - jmp->patchPos -2;
+
+    assert(jump > 0);
+
     if (jump > UINT16_MAX)
       error("Too much code to jump over.");
 
     code[jmp->patchPos] = (jump >> 8) & 0xff;
     code[jmp->patchPos + 1] = jump & 0xff;
+
     freeMe = jmp;
     jmp = jmp->next;
     FREE(PatchJump, freeMe);
@@ -688,7 +699,7 @@ static void forStatement() {
     emitByte(OP_POP);
   }
 
-  patchLoopGotoJumps(&loopJmp.patchContinue, continuePos);
+  patchLoopGotoJumps(&loopJmp.patchContinue, loopStart);
   patchLoopGotoJumps(&loopJmp.patchBreak, currentChunk()->count);
 
   endScope();
@@ -753,13 +764,10 @@ static void whileStatement() {
   emitByte(OP_POP);
   statement();
 
-  int continuePos = currentChunk()->count;
   emitLoop(loopStart);
-  int breakPos = currentChunk()->count;
-
   patchJump(endJump);
-  patchLoopGotoJumps(&loopJmp.patchContinue, continuePos);
-  patchLoopGotoJumps(&loopJmp.patchBreak, breakPos);
+  patchLoopGotoJumps(&loopJmp.patchContinue, loopStart);
+  patchLoopGotoJumps(&loopJmp.patchBreak, currentChunk()->count);
   emitByte(OP_POP);
 
   current->loopJumps = loopJmp.next;
