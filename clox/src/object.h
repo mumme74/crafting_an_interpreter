@@ -116,7 +116,7 @@ typedef struct ObjBoundMethod {
 
 typedef struct ObjDict {
   Obj obj;
-  Table items;
+  Table fields;
 } ObjDict;
 
 

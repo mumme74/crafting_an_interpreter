@@ -39,7 +39,7 @@ static void freeObject(Obj *object) {
   } break;
   case OBJ_DICT: {
     ObjDict *dict = (ObjDict*)object;
-    freeTable(&dict->items);
+    freeTable(&dict->fields);
     FREE(ObjDict, dict);
   } break;
   case OBJ_CLOSURE: {
@@ -86,7 +86,7 @@ static void blackenObject(Obj *object, ObjFlags flags) {
   } break;
   case OBJ_DICT: {
     ObjDict *dict = (ObjDict*)object;
-    markTable(&dict->items, flags);
+    markTable(&dict->fields, flags);
   } break;
   case OBJ_CLASS: {
     ObjClass *klass = (ObjClass*)object;

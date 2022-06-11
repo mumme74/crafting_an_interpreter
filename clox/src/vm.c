@@ -205,6 +205,7 @@ static void defineMethod(ObjString *name) {
   pop();
 }
 
+
 static bool isFalsey(Value value) {
   return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
@@ -318,22 +319,28 @@ static InterpretResult run() {
       push(*frame->closure->upvalues[slot]->location);
     } BREAK;
     CASE(OP_GET_PROPERTY) {
-      if (!IS_INSTANCE(peek(0))) {
-        runtimeError("Only instances have properties.");
+      Table *tbl = NULL;
+      Value obj = peek(0);
+      if (IS_DICT(obj)) {
+        tbl = &AS_DICT(obj)->fields;
+      } else if (IS_INSTANCE(obj)) {
+        tbl = &AS_INSTANCE(obj)->fields;
+      } else {
+        runtimeError("Only instances and dict's have fields.");
         return INTERPRET_RUNTIME_ERROR;
       }
 
-      ObjInstance *instance = AS_INSTANCE(peek(0));
       ObjString *name = READ_STRING();
-
       Value value;
-      if (tableGet(&instance->fields, name, &value)) {
+      if (tableGet(tbl, name, &value)) {
         pop();
         push(value);
         BREAK;
       }
 
-      if (!bindMethod(instance->klass, name)) {
+      if (IS_INSTANCE(obj) &&
+          !bindMethod(AS_INSTANCE(obj)->klass, name))
+      {
         return INTERPRET_RUNTIME_ERROR;
       }
     } BREAK;
@@ -367,13 +374,18 @@ static InterpretResult run() {
       *frame->closure->upvalues[slot]->location = peek(0);
     } BREAK;
     CASE(OP_SET_PROPERTY) {
-      if (!IS_INSTANCE(peek(1))) {
-        runtimeError("Only instances have fields.");
+      Table *tbl = NULL;
+      Value obj = peek(1);
+      if (IS_DICT(obj)) {
+        tbl = &AS_DICT(obj)->fields;
+      } else if (IS_INSTANCE(obj)) {
+        tbl = &AS_INSTANCE(obj)->fields;
+      } else {
+        runtimeError("Only instances and dict's have fields.");
         return INTERPRET_RUNTIME_ERROR;
       }
 
-      ObjInstance *instance = AS_INSTANCE(peek(1));
-      tableSet(&instance->fields, READ_STRING(), peek(0));
+      tableSet(tbl, READ_STRING(), peek(0));
       Value value = pop();
       pop();
       push(value);
@@ -505,6 +517,14 @@ static InterpretResult run() {
     CASE(OP_METHOD)
       defineMethod(READ_STRING());
       BREAK;
+    CASE(OP_DICT)
+      push(OBJ_VAL(OBJ_CAST(newDict())));
+      BREAK;
+    CASE(OP_DICT_FIELD) {
+      Table *fields = &AS_DICT(peek(1))->fields;
+      tableSet(fields, READ_STRING(), peek(0));
+      pop();
+    } BREAK;
     }
   }
 #undef READ_BYTE

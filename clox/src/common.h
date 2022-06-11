@@ -13,7 +13,7 @@
 #define DEBUG_STRESS_GC_OLDER
 
 //#define DEBUG_TRACE_EXECUTION
-#define DEBUG_PRINT_CODE
+//#define DEBUG_PRINT_CODE
 
 //#define NAN_BOXING
 

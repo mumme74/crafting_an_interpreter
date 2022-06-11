@@ -80,7 +80,7 @@ const char *typeofValue(Value value) {
   } else if (IS_NUMBER(value)) {
     return "number";
   } else if (IS_OBJ(value)) {
-    typeofObject(AS_OBJ(value));
+    typeOfObject(AS_OBJ(value));
   }
 #else
   switch (value.type) {

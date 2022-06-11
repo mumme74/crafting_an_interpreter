@@ -68,33 +68,43 @@ static int functionToString(char **pbuf, ObjFunction *function) {
 }
 
 static int dictToString(char **pbuf, ObjDict *dict) {
-  ValueArray keys = tableKeys(&dict->items);
-  ValueArray parts;
+  ValueArray keys = tableKeys(&dict->fields),
+             parts;
   int len = 0, i = 0;
-  for (int i = 0; i < keys.count; ++i) {
-    Value key;
-    Value value;
-    if (!getValueArray(&keys, i, &key)) continue;
+  char *buf;
+  ObjString *tmp;
 
-    if (tableGet(&dict->items, AS_STRING(key), &value)) {
+  initValueArray(&parts);
+
+  for (int i = 0; i < keys.count; ++i) {
+    Value key, value;
+    if (!getValueArray(&keys, i, &key)) continue;
+    if (tableGet(&dict->fields, AS_STRING(key), &value)) {
       len += AS_STRING(key)->length + 1;
-      pushValueArray(&parts, key);
-      ObjString *vluPart = valueToString(value);
-      len += vluPart->length;
-      pushValueArray(&parts, OBJ_VAL((Obj*)vluPart));
+      tmp = valueToString(value);
+      len += tmp->length;
+      pushValueArray(&parts, OBJ_VAL(OBJ_CAST(tmp)));
     }
   }
 
-  *pbuf = ALLOCATE(char, len + 3);
-  *pbuf[0] = '{';
+  *pbuf = ALLOCATE(char, len += 3);
+  buf = *pbuf;
+  *buf++ = '{';
   for (i = 0; i < parts.count; ++i) {
-    ObjString *vlu = AS_STRING(parts.values[i]);
-    memcpy(*pbuf, vlu->chars, vlu->length);
+    if (i > 0) *buf++ = ',';
+    tmp = AS_STRING(keys.values[i]);
+    memcpy(buf, tmp->chars, tmp->length);
+    buf += tmp->length;
+    *buf++ = ':';
+    tmp = AS_STRING(parts.values[i]);
+    memcpy(buf, tmp->chars, tmp->length);
+    buf += tmp->length;
   }
-  *pbuf[i++] = '}';
-  *pbuf[i] = '\0';
+  *buf++ = '}';
+  *buf++ = '\0';
 
-  FREE_ARRAY(ValueArray, &keys, keys.count);
+  freeValueArray(&keys);
+  freeValueArray(&parts);
   return len;
 }
 
@@ -112,7 +122,7 @@ ObjBoundMethod* newBoundMethod(Value reciever,
 
 ObjDict *newDict() {
   ObjDict *dict = ALLOCATE_OBJ(ObjDict, OBJ_DICT);
-  initTable(&dict->items);
+  initTable(&dict->fields);
   return dict;
 }
 

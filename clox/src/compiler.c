@@ -38,7 +38,9 @@ block          -> "{" declaration* "}" ;
 
 parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
 
-expression     -> assignment ;
+expression     -> dictDecl | assignment ;
+dictDecl       -> '{' (objectKeyValue (',' objectKeyValue*))* '}' ;
+dictKeyValue   -> IDENTIFIER ':' expression ;
 assignment     -> ( call "." )? IDENTIFIER "=" assignment
                 | logic_or ;
 logic_or       -> logic_and ( "or" logic_and )* ;
@@ -794,6 +796,24 @@ static void syncronize() {
   }
 }
 
+
+static PatchJump *loopGotoJump(const char *errMsg) {
+  if (current->loopJumps == NULL) {
+    errorAtCurrent(errMsg);
+    return NULL;
+  }
+
+  PatchJump *jump = (PatchJump*)ALLOCATE(PatchJump, 1);
+  if (jump == NULL) {
+    error("Could not allocate memory during parsing.");
+    return NULL;
+  }
+
+  jump->next = NULL;
+  jump->patchPos = emitJump(OP_JUMP);
+  return jump;
+}
+
 static void declaration() {
   if (match(TOKEN_CLASS)) {
     classDeclaration();
@@ -870,23 +890,6 @@ static Token syntheticToken(const char* text) {
   token.start = text;
   token.length = (int)strlen(text);
   return token;
-}
-
-static PatchJump *loopGotoJump(const char *errMsg) {
-  if (current->loopJumps == NULL) {
-    errorAtCurrent(errMsg);
-    return NULL;
-  }
-
-  PatchJump *jump = (PatchJump*)ALLOCATE(PatchJump, 1);
-  if (jump == NULL) {
-    error("Could not allocate memory during parsing.");
-    return NULL;
-  }
-
-  jump->next = NULL;
-  jump->patchPos = emitJump(OP_JUMP);
-  return jump;
 }
 
 static void break_(bool canAssign) {
@@ -1010,16 +1013,32 @@ static void literal(bool canAssign) {
   }
 }
 
+static void dict(bool canAssign) {
+  emitByte(OP_DICT);
+  while (parser.current.type == TOKEN_IDENTIFIER) {
+    consume(TOKEN_IDENTIFIER, "Expect key.");
+    uint8_t constant = identifierConstant(&parser.previous);
+    consume(TOKEN_COLON, "Expect ':' after dict key.");
+    expression();
+    if (parser.current.type != TOKEN_RIGHT_BRACE)
+      consume(TOKEN_COMMA, "Expect ',' between dict fields.");
+    emitBytes(OP_DICT_FIELD, constant);
+  }
+
+  consume(TOKEN_RIGHT_BRACE, "Expect '}' after dict declaration");
+}
+
 static ParseRule rules[] = {
   [TOKEN_LEFT_PAREN]      = {grouping,  call,   PREC_CALL},
   [TOKEN_RIGHT_PAREN]     = {NULL,      NULL,   PREC_NONE},
-  [TOKEN_LEFT_BRACE]      = {NULL,      NULL,   PREC_NONE},
+  [TOKEN_LEFT_BRACE]      = {dict,      NULL,   PREC_NONE},
   [TOKEN_RIGHT_BRACE]     = {NULL,      NULL,   PREC_NONE},
   [TOKEN_COMMA]           = {NULL,      NULL,   PREC_NONE},
   [TOKEN_DOT]             = {NULL,      dot,    PREC_CALL},
   [TOKEN_MINUS]           = {unary,     binary, PREC_TERM},
   [TOKEN_PLUS]            = {NULL,      binary, PREC_TERM},
   [TOKEN_SEMICOLON]       = {NULL,      NULL,   PREC_NONE},
+  [TOKEN_COLON]           = {NULL,      NULL,   PREC_NONE},
   [TOKEN_SLASH]           = {NULL,      binary, PREC_FACTOR},
   [TOKEN_STAR]            = {NULL,      binary, PREC_FACTOR},
   [TOKEN_BANG]            = {unary,     NULL,   PREC_NONE},
