@@ -156,8 +156,23 @@ ValueArray tableKeys(const Table *table) {
 
   for (int i = 0; i < table->capacity; ++i) {
     Entry *e = &table->entries[i];
+    if (e->key != NULL && !IS_NIL(e->value)) {
+      ObjString *key = copyString(e->key->chars, e->key->length);
+      pushValueArray(&array, OBJ_VAL((Obj*)key));
+    }
+  }
+
+  return array;
+}
+
+ValueArray tableValues(const Table *table) {
+  ValueArray array;
+  initValueArray(&array);
+
+  for (int i = 0; i < table->capacity; ++i) {
+    Entry *e = &table->entries[i];
     if (e->key != NULL && !IS_NIL(e->value))
-      writeValueArray(&array, OBJ_VAL(&e->key->obj));
+      pushValueArray(&array, e->value);
   }
 
   return array;

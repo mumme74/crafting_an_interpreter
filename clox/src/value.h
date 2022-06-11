@@ -93,10 +93,16 @@ typedef struct ValueArray{
 
 
 void initValueArray(ValueArray *array);
+
 void freeValueArray(ValueArray *array);
-void writeValueArray(ValueArray *array, Value);
+void pushValueArray(ValueArray *array, Value value);
+bool popValueArray(ValueArray  *array, Value *value);
+bool getValueArray(ValueArray  *array, int index, Value *value);
+bool setValueArray(ValueArray *array, int index, Value *value);
+ObjString joinValueArray(ValueArray *array, ObjString sep);
+
 bool valuesEqual(Value a, Value b);
 const char *typeofValue(Value value);
-void printValue(Value value);
+ObjString *valueToString(Value value);
 
 #endif // VALUE_H

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "common.h"
@@ -16,7 +17,7 @@ void freeValueArray(ValueArray *array) {
   initValueArray(array);
 }
 
-void writeValueArray(ValueArray *array, Value value) {
+void pushValueArray(ValueArray *array, Value value) {
   if (array->capacity < array->count + 1) {
     int oldCapacity = array->capacity;
     array->capacity = GROW_CAPACITY(oldCapacity);
@@ -26,6 +27,31 @@ void writeValueArray(ValueArray *array, Value value) {
 
   array->values[array->count++] = value;
 }
+
+bool popValueArray(ValueArray *array, Value *value) {
+  if (array->count < 1) return false;
+  memcpy(value, &array->values[array->count-1], sizeof(Value));
+  --array->count;
+  return true;
+}
+
+bool getValueArray(ValueArray *array, int index, Value *value) {
+  if (index < 0) index = array->count + index; // get from back
+  if (index >= array->count) return false;
+  memcpy(value, &array->values[index], sizeof(Value));
+  return true;
+}
+
+bool setValueArray(ValueArray *array, int index, Value *value) {
+  if (index < 0) index = array->count + index; // get from back
+  if (index >= array->count) return false;
+  memcpy(&array->values[index], value, sizeof(Value));
+  return true;
+}
+
+/*ObjString joinValueArray(ValueArray *array, ObjString sep) {
+  // FIXME implement
+}*/
 
 bool valuesEqual(Value a, Value b) {
 #ifdef NAN_BOXING
@@ -61,31 +87,43 @@ const char *typeofValue(Value value) {
   case VAL_BOOL: return "boolean";
   case VAL_NIL: return "nil";
   case VAL_NUMBER: return "number";
-  case VAL_OBJ: return typeofObject(AS_OBJ(value));
+  case VAL_OBJ: return typeOfObject(AS_OBJ(value));
   }
 #endif
   return "undefined";
 }
 
-void printValue(Value value) {
+ObjString *valueToString(Value value) {
 #ifdef NAN_BOXING
   if (IS_BOOL(value)) {
-    printf(AS_BOOL(value) ? "true" : "false");
+    return copyString(
+      AS_BOOL(value) ? "true" : "false",
+      AS_BOOL(value) ? 4 : 5);
   } else if (IS_NIL(value)) {
-    printf("nil");
+    return copyString("nil", 3);
   } else if (IS_NUMBER(value)) {
-    printf("%g", AS_NUMBER(value));
+    const char buf[30];
+    sprintf(buf, "%g", AS_NUMBER(value));
+    return copyString(buf, strlen(buf));
   } else if (IS_OBJ(value)) {
-    printObject(value);
+    return objectToString(value);
   }
 #else
   switch (value.type) {
   case VAL_BOOL:
-    printf(AS_BOOL(value) ? "true" : "false");
-    break;
-  case VAL_NIL: printf("nil"); break;
-  case VAL_NUMBER: printf("%g", AS_NUMBER(value)); break;
-  case VAL_OBJ: printObject(value); break;
+    return copyString(
+      AS_BOOL(value) ? "true" : "false",
+      AS_BOOL(value) ? 4 : 5);
+  case VAL_NIL:
+    return copyString("nil", 3);
+  case VAL_NUMBER: {
+    char buf[30];
+    sprintf(buf, "%g", AS_NUMBER(value));
+    return copyString(buf, strlen(buf));
+  }
+  case VAL_OBJ:
+    return objectToString(value);
   }
 #endif
+  return NULL;
 }

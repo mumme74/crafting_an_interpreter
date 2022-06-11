@@ -10,6 +10,7 @@
 #define OBJ_CAST(value)            (Obj*)(value)
 
 #define IS_BOUND_METHOD(value)     (isObjType(value, OBJ_BOUND_METHOD))
+#define IS_DICT(value)             (isObjType(value, OBJ_DICT))
 #define IS_CLASS(value)            (isObjType(value, OBJ_CLASS))
 #define IS_CLOSURE(value)          (isObjType(value, OBJ_CLOSURE))
 #define IS_FUNCTION(value)         (isObjType(value, OBJ_FUNCTION))
@@ -18,6 +19,7 @@
 #define IS_STRING(value)           (isObjType(value, OBJ_STRING))
 
 #define AS_BOUND_METHOD(value)     ((ObjBoundMethod*)AS_OBJ(value))
+#define AS_DICT(value)             ((ObjDict*)AS_OBJ(value))
 #define AS_CLASS(value)            ((ObjClass*)AS_OBJ(value))
 #define AS_CLOSURE(value)          ((ObjClosure*)AS_OBJ(value))
 #define AS_FUNCTION(value)         ((ObjFunction*)AS_OBJ(value))
@@ -26,6 +28,10 @@
 #define AS_NATIVE(value)           (AS_NATIVE_OBJ(value)->function)
 #define AS_STRING(value)           ((ObjString*)AS_OBJ(value))
 #define AS_CSTRING(value)          (((ObjString*)AS_OBJ(value))->chars)
+
+#define CSTRING_TO_VALUE(string, length)    ((Value) { \
+        {.obj = takeString(string, length)}, VAL_OBJ})
+
 
 // Object lags
 #define GC_FLAGS                   0x07
@@ -36,6 +42,7 @@
 
 typedef enum {
   OBJ_BOUND_METHOD,
+  OBJ_DICT,
   OBJ_CLASS,
   OBJ_CLOSURE,
   OBJ_FUNCTION,
@@ -107,8 +114,14 @@ typedef struct ObjBoundMethod {
   ObjClosure *methods;
 } ObjBoundMethod;
 
+typedef struct ObjDict {
+  Obj obj;
+  Table items;
+} ObjDict;
+
 
 ObjBoundMethod *newBoundMethod(Value reciever, ObjClosure *method);
+ObjDict        *newDict();
 ObjClass       *newClass(ObjString *name);
 ObjClosure     *newClosure(ObjFunction *function);
 ObjFunction    *newFunction();
@@ -118,8 +131,10 @@ ObjUpvalue     *newUpvalue(Value *slot);
 
 ObjString      *takeString(char *chars, int length);
 ObjString      *copyString(const char *chars, int length);
-const char     *typeofObject(Obj* object);
-void printObject(Value value);
+ObjString      *concatString(const char *str1, const char *str2, int len1, int len2);
+
+const char     *typeOfObject(Obj* object);
+ObjString *objectToString(Value value);
 
 static inline bool isObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;

@@ -31,14 +31,6 @@ static Obj* allocateObject(size_t size, ObjType type) {
   return object;
 }
 
-static void printFunction(ObjFunction *function) {
-  if (function->name == NULL) {
-    printf("<script>");
-    return;
-  }
-  printf("<fn %s>", function->name->chars);
-}
-
 static ObjString *allocateString(char *chars, int length,
                                  uint32_t hash)
 {
@@ -62,6 +54,50 @@ static uint32_t hashString(const char *key, int length) {
   return hash;
 }
 
+static int functionToString(char **pbuf, ObjFunction *function) {
+  int len;
+  if (function->name == NULL) {
+    *pbuf = ALLOCATE(char, len = 8);
+    sprintf(*pbuf, "<script>");
+  } else {
+    len = function->name->length + 5;
+    *pbuf = ALLOCATE(char, len);
+    sprintf(*pbuf, "<fn %s>", function->name->chars);
+  }
+  return len;
+}
+
+static int dictToString(char **pbuf, ObjDict *dict) {
+  ValueArray keys = tableKeys(&dict->items);
+  ValueArray parts;
+  int len = 0, i = 0;
+  for (int i = 0; i < keys.count; ++i) {
+    Value key;
+    Value value;
+    if (!getValueArray(&keys, i, &key)) continue;
+
+    if (tableGet(&dict->items, AS_STRING(key), &value)) {
+      len += AS_STRING(key)->length + 1;
+      pushValueArray(&parts, key);
+      ObjString *vluPart = valueToString(value);
+      len += vluPart->length;
+      pushValueArray(&parts, OBJ_VAL((Obj*)vluPart));
+    }
+  }
+
+  *pbuf = ALLOCATE(char, len + 3);
+  *pbuf[0] = '{';
+  for (i = 0; i < parts.count; ++i) {
+    ObjString *vlu = AS_STRING(parts.values[i]);
+    memcpy(*pbuf, vlu->chars, vlu->length);
+  }
+  *pbuf[i++] = '}';
+  *pbuf[i] = '\0';
+
+  FREE_ARRAY(ValueArray, &keys, keys.count);
+  return len;
+}
+
 // -----------------------------------------------------------
 
 ObjBoundMethod* newBoundMethod(Value reciever,
@@ -72,6 +108,12 @@ ObjBoundMethod* newBoundMethod(Value reciever,
   bound->reciever = reciever;
   bound->methods = method;
   return bound;
+}
+
+ObjDict *newDict() {
+  ObjDict *dict = ALLOCATE_OBJ(ObjDict, OBJ_DICT);
+  initTable(&dict->items);
+  return dict;
 }
 
 ObjClass *newClass(ObjString *name) {
@@ -152,9 +194,17 @@ ObjString *copyString(const char *chars, int length) {
   return allocateString(heapChars, length, hash);
 }
 
-const char *typeofObject(Obj* object) {
+ObjString *concatString(const char *str1, const char *str2, int len1, int len2) {
+  char *heapChars = ALLOCATE(char, len1 + len2);
+  memcpy(heapChars, str1, len1);
+  memcpy(heapChars, str2, len2);
+  return takeString(heapChars, len1 + len2);
+}
+
+const char *typeOfObject(Obj* object) {
   switch (object->type){
   case OBJ_BOUND_METHOD: return "bound method";
+  case OBJ_DICT: return "dict";
   case OBJ_CLASS: return "class";
   case OBJ_CLOSURE: return "closure";
   case OBJ_FUNCTION: return "function";
@@ -166,28 +216,56 @@ const char *typeofObject(Obj* object) {
   return "undefined";
 }
 
-void printObject(Value value) {
+ObjString *objectToString(Value value) {
+  ObjString *ret = NULL;
+  char *buf = NULL;
   switch (OBJ_TYPE(value)) {
-  case OBJ_BOUND_METHOD:
-    printFunction(AS_BOUND_METHOD(value)->methods->function);
-    break;
-  case OBJ_CLASS:
-    printf("<class %s>", AS_CLASS(value)->name->chars); break;
-  case OBJ_CLOSURE:
+  case OBJ_BOUND_METHOD: {
+    int len = functionToString(&buf,
+                AS_BOUND_METHOD(value)->methods->function);
+    ret = copyString(buf, len);
+   } break;
+  case OBJ_DICT: {
+    int len = dictToString(&buf, AS_DICT(value));
+    ret = copyString(buf, len);
+   } break;
+  case OBJ_CLASS: {
+    ObjClass *cls = AS_CLASS(value);
+    int len = cls->name->length + 8;
+    buf = ALLOCATE(char, len);
+    sprintf(buf, "<class %s>", AS_CLASS(value)->name->chars);
+    ret = copyString(buf, len);
+  } break;
+  case OBJ_CLOSURE: {
     //printClosure(AS_CLOSURE(value)); break;
-    printFunction(AS_CLOSURE(value)->function); break;
-  case OBJ_FUNCTION:
-    printFunction(AS_FUNCTION(value)); break;
+    int len = functionToString(&buf, AS_CLOSURE(value)->function);
+    ret = copyString(buf, len);
+  } break;
+  case OBJ_FUNCTION: {
+    int len = functionToString(&buf, AS_FUNCTION(value));
+    ret = copyString(buf, len);
+  } break;
   case OBJ_INSTANCE: {
     ObjInstance *instance = AS_INSTANCE(value);
-    printf("<%s instance>", instance->klass->name->chars);
+    int len = instance->klass->name->length + 11;
+    buf = ALLOCATE(char, len);
+    sprintf(buf, "<%s instance>", instance->klass->name->chars);
+    ret = copyString(buf, len);
   } break;
-  case OBJ_NATIVE:
-    printf("<native fn %s>", AS_NATIVE_OBJ(value)->name->chars);
-    break;
+  case OBJ_NATIVE: {
+    ObjNative *native = AS_NATIVE_OBJ(value);
+    int len = native->name->length + 12;
+    buf = ALLOCATE(char, len);
+    sprintf(buf, "<native fn %s>", AS_NATIVE_OBJ(value)->name->chars);
+    ret = copyString(buf, len);
+   } break;
   case OBJ_STRING:
-    printf("%s", AS_CSTRING(value)); break;
+    ret = AS_STRING(value); break;
   case OBJ_UPVALUE:
-    printf("upvalue"); break;
+    ret = copyString("<upvalue>", 9); break;
   }
+
+  if (buf != NULL)
+    FREE(char, buf);
+  return ret;
 }

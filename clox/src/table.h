@@ -27,8 +27,10 @@ ObjString *tableFindString(Table *table, const char *chars,
 void tableRemoveWhite(Table *table, ObjFlags flags);
 void markTable(Table *table, ObjFlags flags);
 
-// reciever responsable for calling freeArray
+/// reciever responsable for calling freeArray
 ValueArray tableKeys(const Table *table);
+/// reciever responsable for calling freeArray
+ValueArray tableValues(const Table *table);
 
 
 #endif // CLOX_TABLE_H

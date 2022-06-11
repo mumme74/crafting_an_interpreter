@@ -85,7 +85,7 @@ typedef enum {
 
 typedef void (*ParseFn)(bool canAssign);
 
-typedef struct ParseRule{
+typedef struct ParseRule {
   ParseFn prefix;
   ParseFn infix;
   Precedence precedence;
@@ -690,7 +690,6 @@ static void forStatement() {
   }
 
   statement();
-  int continuePos = currentChunk()->count;
   emitLoop(loopStart);
 
   // bail out on false condition

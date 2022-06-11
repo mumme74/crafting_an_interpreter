@@ -108,6 +108,7 @@ static bool callValue(Value callee, int argCount) {
       push(result);
       return true;
     }
+    case OBJ_DICT:
     case OBJ_STRING: case OBJ_UPVALUE:
     case OBJ_INSTANCE: case OBJ_FUNCTION:
      break; // non callable object type
@@ -233,9 +234,7 @@ static InterpretResult run() {
 # define TRACE_PRINT_EXECUTION \
     printf("        "); \
     for (Value *slot = vm.stack; slot < vm.stackTop; slot++) { \
-      printf("[ "); \
-      printValue(*slot); \
-      printf(" ]"); \
+      printf("[%s]", valueToString(*slot)->chars); \
     } \
     printf("\n"); \
     disassembleInstruction(&frame->closure->function->chunk, \
@@ -408,8 +407,8 @@ static InterpretResult run() {
       push(NUMBER_VAL(-AS_NUMBER(pop())));
       BREAK;
     CASE(OP_PRINT) {
-      printValue(pop());
-      printf("\n");
+      ObjString *vlu = valueToString(pop());
+      printf("%s\n", vlu->chars);
     } BREAK;
     CASE(OP_JUMP) {
       uint16_t offset = READ_SHORT();
@@ -520,6 +519,8 @@ static InterpretResult run() {
 static void defineBuiltins() {
   // all builtin functions
   defineNative("clock", clockNative, 0);
+  /*defineNative("str", toString, 1);
+  defineNative("num", toNumber, 1);*/
 }
 
 // -------------------------------------------------------
@@ -549,10 +550,12 @@ void freeVM() {
   freeObjects();
 }
 
-InterpretResult interpret(const char *source) {
+InterpretResult interpret(const char *source/*, const char *module*/) {
   setGCenabled(false);
   ObjFunction *function = compile(source);
   if (function == NULL) return INTERPRET_COMPILE_ERROR;
+  //function->module->chars = module;
+  //function->module->length = strlen(module)
 
   //push(OBJ_VAL(OBJ_CAST(function)));
   ObjClosure *closure = newClosure(function);
