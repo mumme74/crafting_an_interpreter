@@ -853,9 +853,35 @@ static void number(bool canAssign) {
   emitConstant(NUMBER_VAL(value));
 }
 
+static int escapeString(char *to, const char *from, int len) {
+  const char *start = to, *end = from + len, *prev = from - 1;
+
+  while (from < end) {
+    if (*from == '\\' && *prev != '\\'){
+      switch (*(from +1)) {
+      case 't': *to++ = '\t'; from += 2; prev += 2; continue;
+      case 'r': *to++ = '\r'; from += 2; prev += 2; continue;
+      case 'n': *to++ = '\n'; from += 2; prev += 2; continue;
+      case '0': *to++ = '\0'; from += 2; prev += 2; continue;
+      case 'b': *to++ = '\b'; from += 2; prev += 2; continue;
+      case 'f': *to++ = '\f'; from += 2; prev += 2; continue;
+      case '\\':*to++ = '\\'; from += 2; prev += 2; continue;
+      default: *to++ = *(++from); ++from; prev +=2; continue;
+      }
+    } else
+      *to++ = *from++;
+    ++prev;
+  }
+  return to - start;
+}
+
 static void string(bool canAssign) {
-  emitConstant(OBJ_VAL(OBJ_CAST(copyString(
-    parser.previous.start +1, parser.previous.length -2))));
+  char *escStr = ALLOCATE(char, parser.previous.length-2);
+  int len = escapeString(
+    escStr, parser.previous.start+1, parser.previous.length-2);
+
+  emitConstant(OBJ_VAL(OBJ_CAST(copyString(escStr, len))));
+  FREE(char, escStr);
 }
 
 static OpCode mutate(bool canAssign)

@@ -115,9 +115,15 @@ static const char *skipWhitespace() {
 }
 
 static Token string() {
-  while(peek() != '"' && !isAtEnd()) {
-    if (peek() == '\n') scanner.line++;
-    advance();
+  char c;
+  while((c = peek()) != '"' && !isAtEnd()) {
+    switch(c) {
+    case '\n': ++scanner.line; break;
+    case '\\':
+      if (peekNext() == '"') scanner.current += 2;
+
+    default: advance();
+    }
   }
 
   if (isAtEnd()) return errorToken("Unterminated string.");

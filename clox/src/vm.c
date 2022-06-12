@@ -420,7 +420,9 @@ static InterpretResult run() {
       BREAK;
     CASE(OP_PRINT) {
       ObjString *vlu = valueToString(pop());
-      printf("%s\n", vlu->chars);
+      // dont use printf as a \0 in string should NOT terminate output
+      const char *c = vlu->chars, *end = c + vlu->length;
+      while(c < end) putc(*c++, stdout);
     } BREAK;
     CASE(OP_JUMP) {
       uint16_t offset = READ_SHORT();
