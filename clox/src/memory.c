@@ -202,7 +202,7 @@ static void moveGenList(Obj** fromList, Obj** toList,
     object = object->next;
   }
 
-  vm.olderBytesAllocated = vm.infantBytesAllocated;
+  vm.olderBytesAllocated += vm.infantBytesAllocated;
   vm.infantBytesAllocated = 0;
 }
 
@@ -310,7 +310,8 @@ void infantGarbageCollect() {
   olderGarbageCollect();
 #endif
 
-  vm.infantNextGC = vm.infantBytesAllocated * GC_HEAP_GROW_FACTOR;
+  vm.infantNextGC = vm.infantBytesAllocated > INFANT_GC_MIN ?
+    vm.infantBytesAllocated * GC_HEAP_GROW_FACTOR : INFANT_GC_MIN;
 
   if (vm.infantBytesAllocated + vm.olderBytesAllocated >
       vm.infantNextGC + vm.olderNextGC)
@@ -337,7 +338,8 @@ traceReferences(GC_IS_MARKED_OLDER);
 tableRemoveWhite(&vm.strings, GC_IS_MARKED_OLDER);
 sweep(&vm.olderObjects, GC_IS_MARKED_OLDER);
 
-vm.olderNextGC = vm.olderBytesAllocated * GC_HEAP_GROW_FACTOR;
+vm.olderNextGC = vm.olderBytesAllocated > OLDER_GC_MIN ?
+  vm.olderBytesAllocated * GC_HEAP_GROW_FACTOR : OLDER_GC_MIN;
 
 #ifdef DEBUG_LOG_GC
   printf("-- gc end older collect\n");

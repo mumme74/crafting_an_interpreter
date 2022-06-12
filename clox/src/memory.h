@@ -4,6 +4,9 @@
 #include "common.h"
 #include "object.h"
 
+#define INFANT_GC_MIN (1024 * 1024)
+#define OLDER_GC_MIN  (1024 * 1024)
+
 
 #define ALLOCATE(type, count) \
   (type*)reallocate(NULL, 0, sizeof(type) * (count))
