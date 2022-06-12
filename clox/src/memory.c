@@ -128,25 +128,9 @@ static void markArray(ValueArray* array, ObjFlags flags) {
 }
 
 static void markRoots(ObjFlags flags) {
-  for (Value *slot = vm.stack; slot < vm.stackTop; ++slot) {
-    markValue(*slot, flags);
-  }
-
-  for (int i = 0; i < vm.frameCount; ++i) {
-    markObject(OBJ_CAST(vm.frames[i].closure), flags);
-  }
-
-  for (ObjUpvalue *upvalue = vm.openUpvalues;
-       upvalue != NULL;
-       upvalue = upvalue->next)
-  {
-    markObject(OBJ_CAST(upvalue), flags);
-  }
-
+  markRootsVM(flags);
   markTable(&vm.globals, flags);
   markCompilerRoots(flags);
-
-  markObject((Obj*)vm.initString, flags);
 }
 
 static void traceReferences(ObjFlags flags) {

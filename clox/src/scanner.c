@@ -121,7 +121,7 @@ static Token string() {
     case '\n': ++scanner.line; break;
     case '\\':
       if (peekNext() == '"') scanner.current += 2;
-
+      // fall through
     default: advance();
     }
   }
@@ -162,7 +162,10 @@ static TokenType checkKeyword(int start, int length,
 
 static TokenType identifierType() {
   switch (scanner.start[0]) {
-  case 'a': return checkKeyword(1, 2, "nd", TOKEN_AND);
+  case 'a':
+    if (scanner.current - scanner.start > 1 &&
+        scanner.start[1] == 's') return TOKEN_AS;
+    else return checkKeyword(1, 2, "nd", TOKEN_AND);
   case 'b': return checkKeyword(1, 4, "reak", TOKEN_BREAK);
   case 'c':
     if (scanner.current - scanner.start > 1) {
@@ -172,18 +175,27 @@ static TokenType identifierType() {
       default: break;
       }
     }
-  case 'e': return checkKeyword(1, 3, "lse", TOKEN_ELSE);
+  case 'e':
+    if (scanner.current - scanner.start > 1 &&
+        scanner.start[1] == 'x')
+      return checkKeyword(1, 4, "port", TOKEN_EXPORT);
+    else return checkKeyword(1, 3, "lse", TOKEN_ELSE);
   case 'f':
     if (scanner.current - scanner.start > 1) {
       switch (scanner.start[1]) {
       case 'a': return checkKeyword(2, 3, "lse", TOKEN_FALSE);
+      case 'r': return checkKeyword(2, 2, "om", TOKEN_FROM);
       case 'o': return checkKeyword(2, 1, "r", TOKEN_FOR);
       case 'u': return checkKeyword(2, 1, "n", TOKEN_FUN);
       default: break;
       }
     }
     break;
-  case 'i': return checkKeyword(1, 1, "f", TOKEN_IF);
+  case 'i':
+    if (scanner.current - scanner.start > 1 &&
+        scanner.start[1] == 'm')
+        return checkKeyword(2, 4, "port", TOKEN_IMPORT);
+    else return checkKeyword(1, 1, "f", TOKEN_IF);
   case 'n': return checkKeyword(1, 2, "il", TOKEN_NIL);
   case 'o': return checkKeyword(1, 1, "r", TOKEN_OR);
   case 'p': return checkKeyword(1, 4, "rint", TOKEN_PRINT);
@@ -237,6 +249,8 @@ Token scanToken() {
   case ')': return makeToken(TOKEN_RIGHT_PAREN);
   case '{': return makeToken(TOKEN_LEFT_BRACE);
   case '}': return makeToken(TOKEN_RIGHT_BRACE);
+  case '[': return makeToken(TOKEN_LEFT_BRACKET);
+  case ']': return makeToken(TOKEN_RIGHT_BRACKET);
   case ':': return makeToken(TOKEN_COLON);
   case ';': return makeToken(TOKEN_SEMICOLON);
   case ',': return makeToken(TOKEN_COMMA);
@@ -272,9 +286,9 @@ Token scanToken() {
 }
 
 const char *keywords[] = {
-  "and", "break", "continue", "class", "else", "false",
-  "for", "fun", "if", "nil", "or", "print", "return",
-  "super", "this", "true", "var", "while"
+  "and", "as", "break", "continue", "class", "else", "false",
+  "for", "from", "fun", "if", "import", "nil", "or",
+  "print", "return", "super", "this", "true", "var", "while"
 };
 const size_t keywordCnt = sizeof(keywords) / sizeof(keywords[0]);
 

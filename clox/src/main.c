@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,41 +11,15 @@
 #include "vm.h"
 #include "scanner.h"
 #include "object.h"
+#include "module.h"
 
 
-static char *
-readFile(const char* path) {
-  FILE* file = fopen(path, "rb");
-  if (file == NULL) {
-    fprintf(stderr, "Could not open file \"%s\".\n", path);
-    exit(74);
-  }
-  fseek(file, 0L, SEEK_END);
-  size_t fileSize = ftell(file);
-  rewind(file);
+static int runFile(const char* path) {
+  Module *module = createModule("__main__");
 
-  char *buffer = (char*)malloc(fileSize +1);
-  if (buffer == NULL) {
-    fprintf(stderr, "Not enough memory to read \"%s\".\n", path);
-    exit(74);
-  }
-  size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
-  if (bytesRead < fileSize) {
-    fprintf(stderr, "Could not read file \"%s\".\n", path);
-    exit(74);
-  }
+  InterpretResult result = loadModule(module, path);
 
-  buffer[bytesRead] = '\0';
-
-  fclose(file);
-  return buffer;
-}
-
-static int
-runFile(const char* path) {
-  char *source = readFile(path);
-  InterpretResult result = interpret(source);
-  free(source);
+  delModuleVM(module);
 
   switch (result) {
   case INTERPRET_COMPILE_ERROR: exit(65);
@@ -96,9 +69,10 @@ repl_completion(const char *text, int start, int end) {
   return rl_completion_matches(text, repl_completion_generator);
 }
 
-static void
-repl() {
+static void repl() {
   initVM();
+  Module *module = createModule("__main__");
+
   rl_attempted_completion_function = repl_completion;
   rl_completer_word_break_characters = " .";
 
@@ -107,13 +81,13 @@ repl() {
     if (buffer != NULL) {
       if (strlen(buffer) > 0) {
         add_history(buffer);
-        interpret(buffer);
+        if (compileModule(module, buffer))
+          interpretModule(module);
       }
 
       free(buffer);
     }
   }
-  freeVM();
 }
 
 int
@@ -126,9 +100,10 @@ main(int argc, const char *argv[]) {
       initVM();
       if (!runFile(argv[i]))
         exit(70);
-      freeVM();
     }
+
   }
+  freeVM();
 
   return 0;
 }

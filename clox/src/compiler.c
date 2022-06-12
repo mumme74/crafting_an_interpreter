@@ -22,6 +22,7 @@ statement      -> exprStmt
                 | returnStmt
                 | whileStmt
                 | importStmt
+                | exportStmt
                 | block ;
 
 function       -> IDENTIFIER "(" parameters? ")" block ;
@@ -37,6 +38,7 @@ returnStmt     -> "return" expression? ";" ;
 whileStmt      -> "while" "(" expression ")" statment ;
 importStmt     -> "import" "{" importParam ("," importParam)* "}"
                      "from" STRING ";" ;
+exportStmt     -> "export" dictDecl ;
 block          -> "{" declaration* "}" ;
 
 importParam    -> IDENTIFIER ( "as" IDENTIFIER)*
@@ -367,7 +369,7 @@ static int resolveUpValue(Compiler *compiler, Token *name) {
 // add a new local to current frame
 static void addLocal(Token name) {
   if (current->localCount == UINT8_COUNT) {
-    error("Too maný local variables in function.");
+    error("Too many local variables in function.");
     return;
   }
 
@@ -832,6 +834,27 @@ static void whileStatement() {
   current->loopJumps = loopJmp.next;
 }
 
+// parses a import param ie: id1 as id in
+// import {id1 as id} from "path.lox"
+static bool importParam() {
+  consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER in import statement.");
+  uint8_t name = identifierConstant(&parser.previous);
+  if (check(TOKEN_AS)) {
+    advance();
+    consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER as alias.");
+  }
+  // FIXME implement
+  addLocal(parser.previous);
+}
+
+// parses a import statement, ie:
+// import {id1 as id, id2} from "path.lox"
+static void importStatement() {
+  consume(TOKEN_LEFT_BRACE, "Expect '{' after import.");
+
+  consume(TOKEN_RIGHT_BRACE, "Expect '}' in import statement.");
+}
+
 // when a recoverable syntax error occurs,
 // so we can get many syntax errors roprted at the same time.
 static void syncronize() {
@@ -902,6 +925,8 @@ static void statement() {
     returnStatement();
   } else if (match(TOKEN_WHILE)) {
     whileStatement();
+  } else if (match(TOKEN_IMPORT)) {
+    importStatement();
   } else if (match(TOKEN_LEFT_BRACE)) {
     beginScope();
     block();

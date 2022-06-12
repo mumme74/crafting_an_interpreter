@@ -10,6 +10,7 @@
 #include "compiler.h"
 #include "object.h"
 #include "memory.h"
+#include "module.h"
 
 
 VM vm; // global
@@ -553,8 +554,9 @@ void initVM() {
   vm.infantObjects = vm.olderObjects = NULL;
   vm.infantBytesAllocated = 0;
   vm.olderBytesAllocated = 0;
-  vm.infantNextGC = 1024 * 1024;
-  vm.olderNextGC = 1024;
+  vm.infantNextGC = INFANT_GC_MIN;
+  vm.olderNextGC = OLDER_GC_MIN;
+  vm.modules = NULL;
 
   initTable(&vm.strings);
   initTable(&vm.globals);
@@ -569,10 +571,18 @@ void freeVM() {
   freeTable(&vm.strings);
   freeTable(&vm.globals);
   vm.initString = NULL;
+
+  while(vm.modules != NULL) {
+    Module *freeMod = vm.modules;
+    vm.modules = freeMod->next;
+    freeModule(freeMod);
+    FREE(Module, freeMod);
+  }
+
   freeObjects();
 }
 
-InterpretResult interpret(const char *source/*, const char *module*/) {
+/*InterpretResult interpret(const char *source) {
   setGCenabled(false);
   ObjFunction *function = compile(source);
   if (function == NULL) return INTERPRET_COMPILE_ERROR;
@@ -588,6 +598,55 @@ InterpretResult interpret(const char *source/*, const char *module*/) {
   call(closure, 0);
 
   return run();
+}*/
+
+InterpretResult interpretVM(Module *module) {
+  call(module->closure, 0);
+  return run();
+}
+
+void addModuleVM(Module *module) {
+  module->next = vm.modules;
+  vm.modules = module;
+}
+
+void delModuleVM(Module *module) {
+  if (vm.modules == NULL) return;
+
+  Module **next = &vm.modules;
+  do {
+    if (*next == module) {
+      *next = (*next)->next;
+      FREE(Module, module);
+      return;
+    }
+  } while ((*next = (*next)->next));
+}
+
+void markRootsVM(ObjFlags flags) {
+  for (Value *slot = vm.stack; slot < vm.stackTop; ++slot) {
+    markValue(*slot, flags);
+  }
+
+  for (int i = 0; i < vm.frameCount; ++i) {
+    markObject(OBJ_CAST(vm.frames[i].closure), flags);
+  }
+
+  for (ObjUpvalue *upvalue = vm.openUpvalues;
+       upvalue != NULL;
+       upvalue = upvalue->next)
+  {
+    markObject(OBJ_CAST(upvalue), flags);
+  }
+
+  markObject(OBJ_CAST(vm.initString), flags);
+  markTable(&vm.globals, flags);
+
+  Module *mod = vm.modules;
+  while (mod != NULL) {
+    markRootsModule(mod, flags);
+    mod = mod->next;
+  }
 }
 
 void push(Value value) {
