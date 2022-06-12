@@ -26,7 +26,7 @@
 void *reallocate(void *pointer, size_t oldSize, size_t newSize);
 void markObject(Obj *object, ObjFlags flags);
 void markValue(Value value, ObjFlags flags);
-void setGCenabled(bool enable);
+bool setGCenabled(bool enable);
 void infantGarbageCollect();
 void olderGarbageCollect();
 void freeObjects();

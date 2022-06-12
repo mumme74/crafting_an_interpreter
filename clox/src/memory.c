@@ -129,7 +129,6 @@ static void markArray(ValueArray* array, ObjFlags flags) {
 
 static void markRoots(ObjFlags flags) {
   markRootsVM(flags);
-  markTable(&vm.globals, flags);
   markCompilerRoots(flags);
 }
 
@@ -271,9 +270,11 @@ void freeObjects() {
   free(vm.grayStack);
 }
 
-void setGCenabled(bool enable) {
+bool setGCenabled(bool enable) {
+  bool enabled = !disableGC;
   disableGC = !enable;
   if (enable) checkGC();
+  return enabled;
 }
 
 void infantGarbageCollect() {
@@ -285,7 +286,7 @@ void infantGarbageCollect() {
   markRoots(GC_IS_MARKED);
   traceReferences(GC_IS_MARKED);
   traceOlderReferences(GC_IS_MARKED);
-  tableRemoveWhite(&vm.strings, GC_IS_MARKED);
+  sweepVM(GC_IS_MARKED);
   sweep(&vm.infantObjects, GC_IS_MARKED);
   moveGenList(&vm.infantObjects, &vm.olderObjects,
               GC_IS_MARKED, GC_IS_OLDER);
@@ -319,7 +320,7 @@ void olderGarbageCollect() {
 
 markRoots(GC_IS_MARKED_OLDER);
 traceReferences(GC_IS_MARKED_OLDER);
-tableRemoveWhite(&vm.strings, GC_IS_MARKED_OLDER);
+sweepVM(GC_IS_MARKED);
 sweep(&vm.olderObjects, GC_IS_MARKED_OLDER);
 
 vm.olderNextGC = vm.olderBytesAllocated > OLDER_GC_MIN ?

@@ -39,16 +39,21 @@ static char *readFile(ObjString *path) {
 // ------------------------------------------------------
 
 Module *createModule(const char *name) {
+  bool enabled = setGCenabled(false);
   Module *module = ALLOCATE(Module, 1);
   initModule(module);
   module->name = copyString(name, strlen(name));
+  tableSet(&module->globals, copyString("__name__", 8),
+           OBJ_VAL(OBJ_CAST(module->name)));
   addModuleVM(module);
+  setGCenabled(enabled);
   return module;
 }
 
 // compile source into module
 bool compileModule(Module *module, const char *source) {
-  setGCenabled(false);
+  bool enabled = setGCenabled(false);
+  vm.currentModule = module;
   if (module->source) FREE(char, (char*)module->source);
   size_t len = strlen(source);
   // take a copy of source, prevents unintentional free
@@ -57,22 +62,24 @@ bool compileModule(Module *module, const char *source) {
   module->source = src;
 
   module->rootFunction = compile(source);
-  setGCenabled(true);
+  setGCenabled(enabled);
 
   return module->rootFunction != NULL;
 }
 
 InterpretResult interpretModule(Module *module) {
-  setGCenabled(false);
+  bool enabled = setGCenabled(false);
+  vm.currentModule = module;
   module->closure = newClosure(module->rootFunction);
   push(OBJ_VAL(OBJ_CAST(module->closure)));
-  setGCenabled(true);
+  setGCenabled(enabled);
 
   return interpretVM(module);
 }
 
 InterpretResult loadModule(Module *module, const char *path) {
   if (module->path) FREE(ObjString, module->path);
+  vm.currentModule = module;
   module->path = copyString(path, strlen(path));
 
   const char *src = readFile(module->path);
@@ -89,7 +96,6 @@ void initModule(Module *module) {
   module->name = module->path = NULL;
   module->rootFunction = NULL;
   module->closure = NULL;
-  initTable(&module->strings);
   initTable(&module->globals);
   initTable(&module->exports);
 }
@@ -100,7 +106,6 @@ void freeModule(Module *module) {
   FREE(char, (char*)module->source);
   //FREE(ObjClosure, module->closure);
   //FREE(ObjFunction, module->rootFunction);
-  freeTable(&module->strings);
   freeTable(&module->globals);
   freeTable(&module->exports);
 }
@@ -108,7 +113,11 @@ void freeModule(Module *module) {
 void markRootsModule(Module *module, ObjFlags flags) {
   markObject(OBJ_CAST(module->name), flags);
   markObject(OBJ_CAST(module->path), flags);
-  markTable(&module->strings, flags);
   markTable(&module->globals, flags);
   markTable(&module->exports, flags);
+}
+
+void sweepModule(Module *module, ObjFlags flags) {
+  tableRemoveWhite(&module->exports, flags);
+  tableRemoveWhite(&module->globals, flags);
 }

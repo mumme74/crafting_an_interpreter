@@ -53,7 +53,7 @@ static void defineNative(const char *name, NativeFn function, int arity) {
   ObjString *fnname = copyString(name, (int)strlen(name));
   push(OBJ_VAL(OBJ_CAST(fnname)));
   push(OBJ_VAL(OBJ_CAST(newNative(function, fnname, arity))));
-  tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
+  tableSet(&vm.currentModule->globals, AS_STRING(vm.stack[0]), vm.stack[1]);
   pop();
   pop();
 }
@@ -278,13 +278,14 @@ static InterpretResult run() {
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
+  vm.debugCB(); \
   goto *labels[instruction = READ_BYTE()]
 # define SWITCH(expr) goto *labels[instruction = READ_BYTE()];
 
 #else
 
 # define CASE(inst)        case inst:
-# define BREAK             break
+# define BREAK             vm.debugCB(); break
 # define SWITCH(expr)   switch(expr)
 #endif
 
@@ -309,7 +310,7 @@ static InterpretResult run() {
     CASE(OP_GET_GLOBAL) {
       ObjString *name = READ_STRING();
       Value value;
-      if (!tableGet(&vm.globals, name, &value)) {
+      if (!tableGet(&vm.currentModule->globals, name, &value)) {
         runtimeError("Undefined variable '%s'.", name->chars);
         return INTERPRET_COMPILE_ERROR;
       }
@@ -355,7 +356,7 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_DEFINE_GLOBAL) {
       ObjString *name = READ_STRING();
-      tableSet(&vm.globals, name, peek(0));
+      tableSet(&vm.currentModule->globals, name, peek(0));
       pop();
     } BREAK;
     CASE(OP_SET_LOCAL) {
@@ -364,8 +365,8 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_SET_GLOBAL) {
       ObjString *name = READ_STRING();
-      if (tableSet(&vm.globals, name, peek(0))) {
-        tableDelete(&vm.globals, name);
+      if (tableSet(&vm.currentModule->globals, name, peek(0))) {
+        tableDelete(&vm.currentModule->globals, name);
         runtimeError("Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
@@ -546,30 +547,29 @@ static void defineBuiltins() {
   defineNative("num", toNumber, 1);*/
 }
 
+static void debugCB() { /* empty*/ }
+
 // -------------------------------------------------------
 
 
 void initVM() {
+  initTable(&vm.strings);
   resetStack();
   vm.infantObjects = vm.olderObjects = NULL;
   vm.infantBytesAllocated = 0;
   vm.olderBytesAllocated = 0;
   vm.infantNextGC = INFANT_GC_MIN;
   vm.olderNextGC = OLDER_GC_MIN;
-  vm.modules = NULL;
-
-  initTable(&vm.strings);
-  initTable(&vm.globals);
+  vm.modules = vm.currentModule = createModule("__main__");
 
   vm.initString = NULL;
   vm.initString = copyString("init", 4);
+  vm.debugCB = debugCB;
 
   defineBuiltins();
 }
 
 void freeVM() {
-  freeTable(&vm.strings);
-  freeTable(&vm.globals);
   vm.initString = NULL;
 
   while(vm.modules != NULL) {
@@ -579,26 +579,10 @@ void freeVM() {
     FREE(Module, freeMod);
   }
 
+  freeTable(&vm.strings);
+
   freeObjects();
 }
-
-/*InterpretResult interpret(const char *source) {
-  setGCenabled(false);
-  ObjFunction *function = compile(source);
-  if (function == NULL) return INTERPRET_COMPILE_ERROR;
-  //function->module->chars = module;
-  //function->module->length = strlen(module)
-
-  //push(OBJ_VAL(OBJ_CAST(function)));
-  ObjClosure *closure = newClosure(function);
-  //pop();
-  push(OBJ_VAL(OBJ_CAST(closure)));
-  setGCenabled(true);
-
-  call(closure, 0);
-
-  return run();
-}*/
 
 InterpretResult interpretVM(Module *module) {
   call(module->closure, 0);
@@ -608,6 +592,7 @@ InterpretResult interpretVM(Module *module) {
 void addModuleVM(Module *module) {
   module->next = vm.modules;
   vm.modules = module;
+  vm.currentModule = module;
 }
 
 void delModuleVM(Module *module) {
@@ -640,11 +625,21 @@ void markRootsVM(ObjFlags flags) {
   }
 
   markObject(OBJ_CAST(vm.initString), flags);
-  markTable(&vm.globals, flags);
+  markTable(&vm.strings, flags);
 
   Module *mod = vm.modules;
   while (mod != NULL) {
     markRootsModule(mod, flags);
+    mod = mod->next;
+  }
+}
+
+void sweepVM(ObjFlags flags) {
+  tableRemoveWhite(&vm.strings, flags);
+
+  Module *mod = vm.modules;
+  while (mod != NULL) {
+    sweepModule(mod, flags);
     mod = mod->next;
   }
 }

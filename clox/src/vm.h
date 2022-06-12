@@ -10,6 +10,8 @@
 #define FRAMES_MAX 64
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
+typedef void (*DebugCB)();
+
 typedef struct {
   ObjClosure *closure;
   uint8_t *ip;
@@ -21,9 +23,9 @@ typedef struct {
   int    frameCount;
   Value  stack[STACK_MAX];
   Value* stackTop;
-  Table  globals;
   Table  strings;
   Module  *modules;
+  Module  *currentModule;
   ObjString *initString;
   ObjUpvalue* openUpvalues;
   size_t infantBytesAllocated,
@@ -35,6 +37,7 @@ typedef struct {
   int   grayCount,
         grayCapacity;
   Obj** grayStack;
+  DebugCB debugCB;
 } VM;
 
 typedef enum InterpretResult {
@@ -60,7 +63,11 @@ void addModuleVM(Module *module);
 // remove module from VM and free it
 void delModuleVM(Module *module);
 
+// GC mark phase
 void markRootsVM(ObjFlags flags);
+
+// GC sweep phase
+void sweepVM(ObjFlags flags);
 
 // push a value onto stack
 void push(Value value);

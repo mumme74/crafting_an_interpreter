@@ -12,6 +12,7 @@
 #include "scanner.h"
 #include "object.h"
 #include "module.h"
+#include "debugger.h"
 
 
 static int runFile(const char* path) {
@@ -47,7 +48,7 @@ repl_completion_generator(const char *text, int state) {
     }
   }
 
-  ValueArray globalKeys = tableKeys(&vm.globals);
+  ValueArray globalKeys = tableKeys(&vm.currentModule->globals);
   for (int i = 0, m = 0; i < globalKeys.count; ++i) {
     const char *key = AS_CSTRING(globalKeys.values[i]);
     if (strncmp(key, text, len) == 0) {
@@ -71,7 +72,7 @@ repl_completion(const char *text, int start, int end) {
 
 static void repl() {
   initVM();
-  Module *module = createModule("__main__");
+  Module *module = vm.currentModule;
 
   rl_attempted_completion_function = repl_completion;
   rl_completer_word_break_characters = " .";
@@ -96,8 +97,18 @@ main(int argc, const char *argv[]) {
   if (argc == 1) {
     repl();
   } else {
-    for (int i = 1; i < argc; i++) {
+    int i = 1;
+    DebugCB cb = NULL;
+    if (argc >= 2 && strcmp(argv[2], "-d")) {
+      i++;
+      initDebugger();
+      setDebuggerState(DBG_HALT);
+      cb = onNextTick;
+    }
+
+    for (; i < argc; i++) {
       initVM();
+      if (cb) vm.debugCB = cb;
       if (!runFile(argv[i]))
         exit(70);
     }

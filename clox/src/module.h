@@ -11,7 +11,6 @@ typedef struct Module {
   ObjFunction *rootFunction;
   ObjClosure *closure;
   Table  globals;
-  Table  strings;
   Table  exports;
   Module *next;
 } Module;
@@ -34,5 +33,7 @@ void initModule(Module *module);
 void freeModule(Module *module);
 // mark during GC mark and sweep
 void markRootsModule(Module *module, ObjFlags flags);
+// GC sweep phase
+void sweepModule(Module *module, ObjFlags flags);
 
 #endif // LOX_MODULE_LOX
