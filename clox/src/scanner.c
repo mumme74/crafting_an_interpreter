@@ -18,6 +18,11 @@ static bool isAtEnd() {
   return *scanner.current == '\0';
 }
 
+static char advance() {
+  scanner.current++;
+  return scanner.current[-1];
+}
+
 static Token makeToken(TokenType type) {
   Token token;
   token.type = type;
@@ -25,6 +30,11 @@ static Token makeToken(TokenType type) {
   token.length = (int)(scanner.current - scanner.start);
   token.line = scanner.line;
   return token;
+}
+
+static Token makeTokenAdvance(TokenType type, int moveFw) {
+  while (moveFw-- > 0) scanner.current++;
+  return makeToken(type);
 }
 
 static Token errorToken(const char *message) {
@@ -36,10 +46,6 @@ static Token errorToken(const char *message) {
   return token;
 }
 
-static char advance() {
-  scanner.current++;
-  return scanner.current[-1];
-}
 
 static bool match(char expected) {
   if (isAtEnd()) return false;
@@ -229,10 +235,18 @@ Token scanToken() {
   case ';': return makeToken(TOKEN_SEMICOLON);
   case ',': return makeToken(TOKEN_COMMA);
   case '.': return makeToken(TOKEN_DOT);
-  case '-': return makeToken(TOKEN_MINUS);
-  case '+': return makeToken(TOKEN_PLUS);
-  case '*': return makeToken(TOKEN_STAR);
-  case '/': return makeToken(TOKEN_SLASH);
+  case '-':
+    if (peek() == '=') return makeTokenAdvance(TOKEN_MINUS_EQUAL, 1);
+    else return makeToken(TOKEN_MINUS);
+  case '+':
+    if (peek() == '=') return makeTokenAdvance(TOKEN_PLUS_EQUAL, 1);
+    else return makeToken(TOKEN_PLUS);
+  case '*':
+    if (peek() == '=') return makeTokenAdvance(TOKEN_STAR_EQUAL, 1);
+    else return makeToken(TOKEN_STAR);
+  case '/':
+    if (peek() == '=') return makeTokenAdvance(TOKEN_SLASH_EQUAL, 1);
+    else return makeToken(TOKEN_SLASH);
   case '!':
     return makeToken(
       match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);

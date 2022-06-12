@@ -1,8 +1,14 @@
 print "test_dict.lox";
 
 var dict = {};
+dict.test = 0;
 print dict;
 
 var dict1 = {_gh:1, hej:"dest"};
+
+dict1._gh += 1;
+print dict1._gh;
+dict1.hej += " for me";
+print dict1.hej;
 
 print dict1.hej = "nej";

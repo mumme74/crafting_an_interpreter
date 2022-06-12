@@ -41,7 +41,7 @@ parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
 expression     -> dictDecl | assignment ;
 dictDecl       -> '{' (objectKeyValue (',' objectKeyValue*))* '}' ;
 dictKeyValue   -> IDENTIFIER ':' expression ;
-assignment     -> ( call "." )? IDENTIFIER "=" assignment
+assignment     -> ( call "." )? IDENTIFIER ("="|"+="|-=|*=|/=) assignment
                 | logic_or ;
 logic_or       -> logic_and ( "or" logic_and )* ;
 logic_and      -> equality ( "and" equality )* ;
@@ -858,6 +858,21 @@ static void string(bool canAssign) {
     parser.previous.start +1, parser.previous.length -2))));
 }
 
+static OpCode mutate(bool canAssign)
+{
+  if (canAssign) {
+    switch (parser.current.type) {
+    case TOKEN_PLUS_EQUAL:  advance(); return OP_ADD;
+    case TOKEN_MINUS_EQUAL: advance(); return OP_SUBTRACT;
+    case TOKEN_STAR_EQUAL:  advance(); return OP_MULTIPLY;
+    case TOKEN_SLASH_EQUAL: advance(); return OP_DIVIDE;
+    default: break;
+    }
+  }
+
+  return OP_NIL;
+}
+
 static void namedVariable(Token name, bool canAssign) {
   uint8_t getOp, setOp;
   int arg = resolveLocal(current, &name);
@@ -873,7 +888,13 @@ static void namedVariable(Token name, bool canAssign) {
   } else
     return; // not found
 
-  if (canAssign && match(TOKEN_EQUAL)) {
+  OpCode mutateCode = mutate(canAssign);
+  if (mutateCode != OP_NIL) {
+    emitBytes(getOp, arg);
+    expression();
+    emitByte(mutateCode);
+    emitBytes(setOp, arg);
+  } else if (canAssign && match(TOKEN_EQUAL)) {
     expression();
     emitBytes(setOp, arg);
   } else {
@@ -992,7 +1013,17 @@ static void dot(bool canAssign) {
   consume(TOKEN_IDENTIFIER, "Expect property after '.'.");
   uint8_t name = identifierConstant(&parser.previous);
 
-  if (canAssign && match(TOKEN_EQUAL)) {
+  OpCode mutateCode = mutate(canAssign);
+  if (mutateCode != OP_NIL) {
+    Chunk *chunk = currentChunk();
+    int getObjPos = chunk->count - 2;
+    emitByte(chunk->code[getObjPos]);
+    emitByte(chunk->code[getObjPos+1]);
+    emitBytes(OP_GET_PROPERTY, name);
+    expression();
+    emitByte(mutateCode);
+    emitBytes(OP_SET_PROPERTY, name);
+  } else if (canAssign && match(TOKEN_EQUAL)) {
     expression();
     emitBytes(OP_SET_PROPERTY, name);
   } else if (match(TOKEN_LEFT_PAREN)) {
@@ -1045,6 +1076,10 @@ static ParseRule rules[] = {
   [TOKEN_BANG_EQUAL]      = {NULL,      binary, PREC_EQUALITY},
   [TOKEN_EQUAL]           = {NULL,      NULL,   PREC_NONE},
   [TOKEN_EQUAL_EQUAL]     = {NULL,      binary, PREC_EQUALITY},
+  [TOKEN_PLUS_EQUAL]      = {NULL,      NULL,   PREC_NONE},
+  [TOKEN_MINUS_EQUAL]     = {NULL,      NULL,   PREC_NONE},
+  [TOKEN_STAR_EQUAL]      = {NULL,      NULL,   PREC_NONE},
+  [TOKEN_SLASH_EQUAL]     = {NULL,      NULL,   PREC_NONE},
   [TOKEN_GREATER]         = {NULL,      binary, PREC_COMPARISON},
   [TOKEN_GREATER_EQUAL]   = {NULL,      binary, PREC_COMPARISON},
   [TOKEN_LESS]            = {NULL,      binary, PREC_COMPARISON},
