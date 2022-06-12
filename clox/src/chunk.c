@@ -34,14 +34,13 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line) {
 }
 
 int addConstant(Chunk *chunk, Value value) {
-  push(value); // for GC
-
   // prevent to store twice
   for (int i = 0; i < chunk->constants.count; ++i) {
     if (valuesEqual(chunk->constants.values[i], value))
       return i;
   }
 
+  push(value); // for GC
   pushValueArray(&chunk->constants, value);
   pop(); // for GC
   return chunk->constants.count - 1;
