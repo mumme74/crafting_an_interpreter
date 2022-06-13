@@ -19,22 +19,26 @@ static int line = 0;
 
 static char *command = NULL;
 
-static void printSource(int baseline) {
-  int fromLine = baseline -10 < 0 ? 0 : baseline -10,
-      toLine   = baseline +10,
-      lineCnt = 1;
+static void printSource(int baseline, int window) {
+  if (baseline < 1) baseline = line;
+
+  int fromLine = baseline -window < 0 ? 0 : baseline -window,
+      toLine   = baseline +window;
+  int lineCnt  = 1;
+
   const char *src = vm.currentModule->source;
-  printf("\n%-4d", lineCnt);
+  putc('\n', stdout);
 
   while (*src != '\0') {
-    if (*src == '\n') {
-      printf("\n%-4d", lineCnt);
-      lineCnt++; src++;
-      continue;
-    }
-
-    if (lineCnt >= fromLine && lineCnt <= toLine)
-      putc(*src++, stdout);
+    if (*src == '\n') ++lineCnt;
+    if (lineCnt >= fromLine && lineCnt <= toLine) {
+      if (*src == '\n' || src == vm.currentModule->source) {
+        printf("\n%-4d%s ", lineCnt, (lineCnt == line ? "*": " "));
+        if (src == vm.currentModule->source) putc(*src, stdout);
+      } else
+        putc(*src, stdout);
+    } if (lineCnt > toLine) break;
+    src++;
   }
   putc('\n', stdout);
 }
@@ -61,11 +65,13 @@ static int readInt() {
 
 static const char *readWord() {
   static char buf[100] = {0}, *pbuf = buf;
-  while ((*command >= 'a' && *command <= 'z') ||
-         (*command >= 'A' && *command <= 'Z') ||
+  if (isalpha(*command) || (*command == '_'))
+    *pbuf++ = (char)tolower(*command++);
+
+  while (isalpha(*command) || isdigit(*command) ||
          (*command == '_') || *command == '.')
   {
-    *pbuf++ = (char)tolower(*command);
+    *pbuf++ = (char)tolower(*command++);
   }
 
   return buf;
@@ -112,8 +118,9 @@ static void parseCommand(char *cmd) {
     return;
   case 'l':
     skipWhitespace();
-    printSource(readInt());
+    printSource(readInt(), 5);
     return;
+  default: printf("Unrecognized cmmand:%s", command);
   }
 }
 
@@ -154,13 +161,19 @@ static void checkBreakpoints() {
   line = frame->closure->function->chunk.lines[
     (int)(frame->ip - frame->closure->function->chunk.code)
   ];
+
   Breakpoint *bp = dbg.breakpoints;
+  int cnt = 1;
   while (bp != NULL) {
     if (bp->module == vm.currentModule &&
         bp->line == line)
     {
       if (bp->hits++ >= bp->ignoreCount) {
         dbg.isHalted = true;
+        printf("\n* stopped at breakpoint %d in %s\n* file:%s\n",
+               ++cnt, vm.currentModule->name->chars,
+               vm.currentModule->path->chars);
+        printSource(line, 2);
         processEvents();
       }
     }
