@@ -171,6 +171,7 @@ static void initCompiler(Compiler *compiler, FunctionType type);
 static void namedVariable(Token name, bool canAssign);
 static Token syntheticToken(const char* text);
 static void variable(bool canAssign);
+static void string(bool canAssign);
 
 // set a new error at Token pos with error message
 static void errorAt(Token *token, const char *message) {
@@ -836,9 +837,10 @@ static void whileStatement() {
 
 // parses a import param ie: id1 as id in
 // import {id1 as id} from "path.lox"
-static bool importParam() {
+static void importParam() {
   consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER in import statement.");
   uint8_t name = identifierConstant(&parser.previous);
+  (void)name;
   if (check(TOKEN_AS)) {
     advance();
     consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER as alias.");
@@ -851,8 +853,17 @@ static bool importParam() {
 // import {id1 as id, id2} from "path.lox"
 static void importStatement() {
   consume(TOKEN_LEFT_BRACE, "Expect '{' after import.");
+  do {
+    importParam();
+    if (!check(TOKEN_COMMA)) break;
+    else advance();
+  } while(true);
 
   consume(TOKEN_RIGHT_BRACE, "Expect '}' in import statement.");
+  consume(TOKEN_FROM, "Expect 'from' after import params.");
+  advance();
+  string(false);
+  consume(TOKEN_SEMICOLON, "Expect ';' after path.");
 }
 
 // when a recoverable syntax error occurs,
@@ -972,7 +983,7 @@ static void string(bool canAssign) {
     escStr, parser.previous.start+1, parser.previous.length-2);
 
   emitConstant(OBJ_VAL(OBJ_CAST(copyString(escStr, len))));
-  FREE(char, escStr);
+  FREE_ARRAY(char, escStr, parser.previous.length-2);
 }
 
 // returns which assigment set is used is: +=, -= ...

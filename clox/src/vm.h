@@ -60,6 +60,9 @@ InterpretResult interpretVM(Module *module);
 // add a module to vm
 void addModuleVM(Module *module);
 
+// get a module based from file path
+Module *getModule(const char *path);
+
 // remove module from VM and free it
 void delModuleVM(Module *module);
 

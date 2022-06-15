@@ -24,6 +24,7 @@ typedef struct Breakpoint {
   Module *module;
   struct Breakpoint *next;
   int line, ignoreCount, hits;
+  bool enabled;
 } Breakpoint;
 
 typedef struct Watchpoint {
@@ -58,10 +59,16 @@ void setBreakpoint(Breakpoint *breakpoint);
 void setBreakpointAtLine(int line, Module *module);
 // returns breakpoint at line in module or NULL
 Breakpoint *getBreakpoint(int line, Module *module);
+// get breakpoint at index or NULL if none existing
+Breakpoint *getBreakpointByIndex(int brkpntNr);
+// get breakpoint index for breakpoint or -1
+int getBreakpointIndex(Breakpoint *breakpoint);
 // remove breakpoints from breakpoints
 bool clearBreakpoint(Breakpoint *breakpoint);
 // remove breakpoint at line in module
 bool clearBreakpointAtLine(int line, Module *module);
+// clear breakpoint by its index
+bool clearBreakpointByIndex(int brkpntNr);
 // set a new watchpoint
 void setWatchpoint(Watchpoint *watchpoint);
 // create and insert a new watchpoint looking at ident

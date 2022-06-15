@@ -278,14 +278,14 @@ static InterpretResult run() {
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
-  vm.debugCB(); \
+  if (vm.debugCB) vm.debugCB(); \
   goto *labels[instruction = READ_BYTE()]
 # define SWITCH(expr) goto *labels[instruction = READ_BYTE()];
 
 #else
 
 # define CASE(inst)        case inst:
-# define BREAK             vm.debugCB(); break
+# define BREAK             if (vm.debugCB) vm.debugCB(); break
 # define SWITCH(expr)   switch(expr)
 #endif
 
@@ -547,8 +547,6 @@ static void defineBuiltins() {
   defineNative("num", toNumber, 1);*/
 }
 
-static void debugCB() { /* empty*/ }
-
 // -------------------------------------------------------
 
 
@@ -564,7 +562,7 @@ void initVM() {
 
   vm.initString = NULL;
   vm.initString = copyString("init", 4);
-  vm.debugCB = debugCB;
+  vm.debugCB = NULL;
 
   defineBuiltins();
 }
@@ -593,6 +591,16 @@ void addModuleVM(Module *module) {
   module->next = vm.modules;
   vm.modules = module;
   vm.currentModule = module;
+}
+
+Module *getModule(const char *path) {
+  Module *mod = vm.modules;
+  while (mod != NULL) {
+    if (memcmp(mod->path->chars, path, mod->path->length) == 0) {
+      return mod;
+    }
+  }
+  return NULL;
 }
 
 void delModuleVM(Module *module) {
