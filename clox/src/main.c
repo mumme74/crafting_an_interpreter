@@ -147,7 +147,8 @@ int main(int argc, char * const argv[]) {
   }
 
   freeVM();
-  FREE_ARRAY(char, (char*)initDebuggerCmds, strlen(initDebuggerCmds));
+  if (initDebuggerCmds != NULL)
+    FREE_ARRAY(char, (char*)initDebuggerCmds, strlen(initDebuggerCmds));
 
   return 0;
 }
