@@ -100,9 +100,13 @@ bool popValueArray(ValueArray  *array, Value *value);
 bool getValueArray(ValueArray  *array, int index, Value *value);
 bool setValueArray(ValueArray *array, int index, Value *value);
 ObjString joinValueArray(ValueArray *array, ObjString sep);
-
+// checks if values are equal
 bool valuesEqual(Value a, Value b);
+// checks if value is false
+bool isFalsey(Value value);
+// returns type of value to string
 const char *typeofValue(Value value);
+// returns value to string
 ObjString *valueToString(Value value);
 
 #endif // VALUE_H

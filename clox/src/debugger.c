@@ -6,6 +6,7 @@
 
 #include "vm.h"
 #include "debugger.h"
+#include "compiler.h"
 #include "module.h"
 #include "memory.h"
 #include "chunk.h"
@@ -22,7 +23,6 @@ static int line = 0;
 
 static void parseCommands(const char *buffer);
 static const char *initCommands = NULL;
-
 
 // prints the source around baseline,
 // window = how many rows before and after
@@ -56,17 +56,15 @@ static void printIdent(const char *ident) {
   printf("printing variable: %s\n", ident);
 }
 
-static void printWatchpoint(Watchpoint *wp) {
-  printIdent(wp->ident);
-}
-
 static void printWatchpoints() {
   Watchpoint *wp = debugger.watchpoints;
-  while (wp != NULL) {
-    if (frame->closure == (ObjClosure*)wp->ident) {
-      printWatchpoint(wp);
+  for (;wp != NULL; wp = wp->next) {
+    Value value;
+    if (vm_eval(&value, wp->expr) == INTERPRET_OK &&
+        !IS_NIL(value))
+    {
+      printf(" %s:%s\n", wp->expr, valueToString(value)->chars);
     }
-    wp = wp->next;
   }
 }
 
@@ -137,22 +135,42 @@ static void checkBreakpoints() {
 
   Module *module = getCurrentModule();
   Breakpoint *bp = debugger.breakpoints;
-  int cnt = 1;
-  while (bp != NULL) {
+  for (int nr = 0; bp != NULL; ++nr, bp = bp->next) {
     if (bp->module == module &&
         bp->line == line)
     {
       if (!bp->enabled) return;
+      if (bp->condition) {
+        if (!bp->evalCondition) {
+          if (vm_evalBuild(&bp->evalCondition, bp->condition) !=
+              INTERPRET_OK) {
+            printf("Breakpoint %d condition invalid.(%s)\n",
+                  nr, bp->condition);
+            FREE_ARRAY(char, (char*)bp->condition,
+                      strlen(bp->condition) +1);
+            bp->condition = NULL;
+            goto afterEvalCondtion;
+          }
+        }
+
+        Value vlu;
+        if (vm_evalRun(&vlu, bp->evalCondition) == INTERPRET_OK &&
+            isFalsey(vlu))
+        {
+          continue;;
+        }
+      }
+
+afterEvalCondtion:
       if (bp->hits++ >= bp->ignoreCount) {
         debugger.isHalted = true;
         printf("\n* stopped at breakpoint %d in %s\n* file:%s\n",
-               ++cnt, module->name->chars,
+               nr, module->name->chars,
                module->path->chars);
         printSource(line, 2);
         processEvents();
       }
     }
-    bp = bp->next;
   }
 }
 
@@ -315,6 +333,7 @@ static const char *readPath() {
 }
 
 // reads from current pos to end of row
+// reciever takes ownership of row
 static int readRestOfRow(char **row) {
   const char *start = cmd;
   while(!isAtEnd())
@@ -393,6 +412,7 @@ const HlpInfo hlpInfos[] = {
   },{
     "cond", 4,
     "cond nr expression   Sets a condition that triggers breakpoint.\n"
+    "cond nr              Clears condition for breakpoint nr.\n"
   },{
     "continue", 8,
     "continue        Continues execution until next breakpoint triggers.\n"
@@ -564,15 +584,35 @@ static void cond_() {
   }
 
   int nr = readInt();
-  skipWhitespace();
-
-  if (isAtEnd()) {
-    printf("Expect condition for breakpoint %d.\n", nr);
+  Breakpoint *bp = getBreakpointByIndex(nr);
+  if (bp == NULL) {
+    printf("Breakpoint %d not found.\n", nr);
     return;
   }
 
-  // FIXME implement
-  printf("cond\n");
+  // clear old condition
+  if (bp->condition != NULL)
+    FREE_ARRAY(char, (char*)bp->condition, strlen(bp->condition)+1);
+  if (bp->evalCondition)
+    bp->evalCondition = NULL;
+
+  skipWhitespace();
+  if (isAtEnd()) {
+    // clear condition
+    printf("Cleared condition for breakpoint %d at %s:%d.\n",
+          nr, bp->module->path->chars, bp->line);
+    return;
+  }
+
+  char *cond;
+  readRestOfRow(&cond);
+
+  if (bp->condition != NULL)
+    FREE_ARRAY(char, (char*)bp->condition, strlen(bp->condition)+1);
+  bp->condition = cond;
+
+  printf("condtion %s set for breakpoint %d at %s:%d\n",
+         cond, nr, bp->module->path->chars, bp->line);
 }
 
 static void continue_() {
@@ -704,8 +744,12 @@ static void print_() {
     return;
   }
 
-  const char *expr = cmd;
-  printf("printing  %s", expr);
+  char *row;
+  int len = readRestOfRow(&row);
+  Value value;
+  vm_eval(&value, row);
+  printf("print (%s) = %s\n", row, valueToString(value)->chars);
+  FREE_ARRAY(char, row, len);
 }
 
 static void quit_() {
@@ -734,7 +778,7 @@ static void watch_() {
   int len = readRestOfRow(&row);
 
   printf("Setting watch %s\n", row);
-  setWatchpointByIdent(row);
+  setWatchpointByExpr(row);
   FREE_ARRAY(char, row, len+1);
 }
 
@@ -807,21 +851,25 @@ void initBreakpoint(Breakpoint *breakpoint) {
 
   breakpoint->module = NULL;
   breakpoint->next = NULL;
+  breakpoint->condition = NULL;
+  breakpoint->evalCondition = NULL;
   breakpoint->enabled = true;
 }
 
 void initWatchpoint(Watchpoint *watchpoint) {
-  watchpoint->ident = NULL;
+  watchpoint->expr = NULL;
   watchpoint->next = NULL;
 }
 
 void freeBreakpoint(Breakpoint *breakpoint) {
   FREE(Breakpoint, breakpoint);
+  FREE_ARRAY(char, (char*)breakpoint->condition,
+             strlen(breakpoint->condition) + 1);
 }
 
 void freeWatchpoint(Watchpoint *watchpoint) {
-  FREE_ARRAY(char, (char*)watchpoint->ident,
-             strlen(watchpoint->ident));
+  FREE_ARRAY(char, (char*)watchpoint->expr,
+             strlen(watchpoint->expr) +1);
 }
 
 void initDebugger() {
@@ -941,7 +989,7 @@ void setWatchpoint(Watchpoint *watchpoint) {
   Watchpoint *wp = debugger.watchpoints,
             **prev = &debugger.watchpoints;
   while (wp != NULL) {
-    if (strcmp(wp->ident, watchpoint->ident) == 0) {
+    if (strcmp(wp->expr, watchpoint->expr) == 0) {
       // replace it
       (*prev) =  watchpoint;
       watchpoint->next = wp->next;
@@ -955,11 +1003,18 @@ void setWatchpoint(Watchpoint *watchpoint) {
   *prev = watchpoint;
 }
 
-void setWatchpointByIdent(const char *ident) {
+void setWatchpointByExpr(const char *expr) {
   Watchpoint *wp = ALLOCATE(Watchpoint, 1);
   initWatchpoint(wp);
-  wp->ident = ALLOCATE(const char, strlen(ident)+1);
-  strcpy((char*)wp->ident, ident);
+  wp->expr = ALLOCATE(const char, strlen(expr)+1);
+  strcpy((char*)wp->expr, expr);
+
+  // insert into list
+  Watchpoint *w = debugger.watchpoints,
+             **ptrToW = &debugger.watchpoints;
+  for (;w != NULL; w = w->next)
+    ptrToW = &w->next;
+  *ptrToW = wp;
 }
 
 bool clearWatchpoint(Watchpoint *watchpoint) {
@@ -979,18 +1034,18 @@ bool clearWatchpoint(Watchpoint *watchpoint) {
 }
 
 // removes watchpoint at module in closure with name ident
-bool clearWatchPointByIdent(const char *ident) {
-  Watchpoint *wp = getWatchpoint(ident);
+bool clearWatchPointByIdent(const char *expr) {
+  Watchpoint *wp = getWatchpoint(expr);
   if (wp != NULL)
     return clearWatchpoint(wp);
   return false;
 }
 
 // get the watchpoint looking at ident in module and closure
-Watchpoint *getWatchpoint(const char *ident) {
+Watchpoint *getWatchpoint(const char *expr) {
   Watchpoint *wp = debugger.watchpoints;
   while (wp != NULL) {
-    if (strcmp(wp->ident, ident) == 0) {
+    if (strcmp(wp->expr, expr) == 0) {
       return wp;
     }
   }
@@ -1010,8 +1065,12 @@ void resumeDebugger() {
   debugger.isHalted = false;
 }
 
-void markDebugger() {
-  // not sure if it's needed?
+void markDebuggerRoots(ObjFlags flags) {
+  Breakpoint *bp = debugger.breakpoints;
+  while (bp != NULL) {
+    markObject(OBJ_CAST(bp->evalCondition), flags);
+    bp = bp->next;
+  }
 }
 
 void onNextTick() {

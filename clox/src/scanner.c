@@ -3,12 +3,20 @@
 
 #include "common.h"
 #include "scanner.h"
+#include "memory.h"
 
 typedef struct {
   const char* start;
   const char* current;
   int line;
 } Scanner;
+
+typedef struct StashScanner {
+  Scanner scanner;
+  struct StashScanner *next;
+} StashScanner;
+
+StashScanner *stashStack = NULL;
 
 Scanner scanner;
 
@@ -228,6 +236,34 @@ static Token identifier() {
 void initScanner(const char *source) {
   scanner.start = scanner.current = source;
   scanner.line = 1;
+}
+
+void scannerStashPush() {
+  StashScanner **prev = &stashStack;
+  while (*prev != NULL)
+    *prev = (*prev)->next;
+
+  *prev = ALLOCATE(StashScanner, 1);
+  memcpy(&(*prev)->scanner, &scanner, sizeof(scanner));
+  (*prev)->next = NULL;
+}
+
+bool scannerStashPop() {
+  if (stashStack == NULL) return false;
+
+  StashScanner  **stsh = &stashStack,
+                **prev = &stashStack;
+  while (*stsh != NULL && (*stsh)->next != NULL) {
+    *prev = *stsh;
+    *stsh = (*stsh)->next;
+  }
+  if (*prev != stashStack)
+    prev = &(*prev)->next;
+
+  memcpy(&scanner, &(*stsh)->scanner, sizeof(scanner));
+  FREE(StashScanner, *stsh);
+  *prev = NULL;
+  return true;
 }
 
 Token scanToken() {

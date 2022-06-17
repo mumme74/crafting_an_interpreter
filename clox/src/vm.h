@@ -15,7 +15,6 @@ typedef struct {
   ObjClosure *closure;
   uint8_t *ip;
   Value *slots;
-  Module *module;
 } CallFrame;
 
 typedef struct {
@@ -26,7 +25,6 @@ typedef struct {
   Table  strings;
   Table  globals;
   Module  *modules;
-  //Module  *currentModule;
   ObjString *initString;
   ObjUpvalue* openUpvalues;
   size_t infantBytesAllocated,
@@ -56,6 +54,16 @@ void freeVM();
 
 // run interpreter on module
 InterpretResult interpretVM(Module *module);
+
+// evaluate code at curretn frame pos, mostly used for debugger print etc.
+InterpretResult vm_eval(Value *value, const char *source);
+
+// build a eval closure
+InterpretResult vm_evalBuild(ObjClosure **closure, const char *source);
+// run a previously build closure for eval
+InterpretResult vm_evalRun(Value *value, ObjClosure *closure);
+
+
 
 // add a module to vm
 void addModuleVM(Module *module);

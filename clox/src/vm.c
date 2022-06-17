@@ -17,6 +17,8 @@ VM vm; // global
 
 // --------------------------------------------------------------
 
+static bool failOnRuntimeErr = false;
+
 static Value clockNative(int argCount, Value *args) {
   return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }
@@ -28,6 +30,7 @@ static void resetStack() {
 }
 
 static void runtimeError(const char *format, ...) {
+  if (failOnRuntimeErr) return;
   va_list args;
   va_start(args, format);
   vfprintf(stderr, format, args);
@@ -206,11 +209,6 @@ static void defineMethod(ObjString *name) {
   pop();
 }
 
-
-static bool isFalsey(Value value) {
-  return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
-}
-
 static void concatenate() {
   ObjString *b = AS_STRING(peek(0)), // peek because of GC
             *a = AS_STRING(peek(1));
@@ -234,7 +232,7 @@ static InterpretResult run() {
 #ifdef DEBUG_TRACE_EXECUTION
   printf("\n===== execution =====\n");
 # define TRACE_PRINT_EXECUTION \
-    printf("        "); \
+    printf("\n        "); \
     for (Value *slot = vm.stack; slot < vm.stackTop; slot++) { \
       printf("[%s]", valueToString(*slot)->chars); \
     } \
@@ -273,12 +271,13 @@ static InterpretResult run() {
     OP(OP_MULTIPLY), OP(OP_DIVIDE), OP(OP_NOT), OP(OP_NEGATE),
     OP(OP_PRINT), OP(OP_JUMP), OP(OP_JUMP_IF_FALSE), OP(OP_LOOP),
     OP(OP_CALL), OP(OP_INVOKE), OP(OP_SUPER_INVOKE), OP(OP_CLOSURE),
-    OP(OP_CLOSE_UPVALUE), OP(OP_RETURN), OP(OP_CLASS),
-    OP(OP_INHERIT), OP(OP_METHOD), OP(OP_DICT), OP(OP_DICT_FIELD)
+    OP(OP_CLOSE_UPVALUE), OP(OP_RETURN), OP(OP_EVAL_EXIT),
+    OP(OP_CLASS), OP(OP_INHERIT), OP(OP_METHOD), OP(OP_DICT),
+    OP(OP_DICT_FIELD)
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
-  if (vm.debugger.state > DBG_RUN) onNextTick(); \
+  if (debugger.state > DBG_RUN) onNextTick(); \
   goto *labels[instruction = READ_BYTE()]
 # define SWITCH(expr) goto *labels[instruction = READ_BYTE()];
 
@@ -506,6 +505,10 @@ static InterpretResult run() {
       push(result);
       frame = &vm.frames[vm.frameCount -1];
     } BREAK;
+    CASE(OP_EVAL_EXIT) {
+      vm.frameCount--;
+      return INTERPRET_OK;
+    } BREAK;
     CASE(OP_CLASS)
       push(OBJ_VAL(OBJ_CAST(newClass(READ_STRING()))));
       BREAK;
@@ -589,10 +592,67 @@ void freeVM() {
 }
 
 InterpretResult interpretVM(Module *module) {
-  vm.frames[vm.frameCount].module = module;
   call(module->closure, 0);
   runInitCommands(); // debugger debug breakpoint file
   return run();
+}
+
+InterpretResult vm_evalBuild(ObjClosure **closure, const char *source) {
+  bool enabled = setGCenabled(false);
+  CallFrame *frame = &vm.frames[vm.frameCount-1];
+  ObjFunction *function = compileEvalExpr(
+    source, &frame->closure->function->chunk);
+  if (function == NULL) {
+    *closure = NULL;
+    setGCenabled(enabled);
+    return INTERPRET_COMPILE_ERROR;
+  }
+
+  // create closure and store upvalues
+ *closure = newClosure(function);
+  (*closure)->upvalueCount = function->upvalueCount;
+  push(OBJ_VAL(OBJ_CAST(*closure)));
+  for(int i = 0; i < function->upvalueCount; ++i) {
+    int index = function->chunk.compiler->upvalues[i].index;
+    if (function->chunk.compiler->upvalues[i].isLocal) {
+      (*closure)->upvalues[i] = captureUpvalue(frame->slots + index);
+    } else {
+      (*closure)->upvalues[i] = frame->closure->upvalues[index];;
+    }
+  }
+  setGCenabled(enabled);
+  return INTERPRET_OK;
+}
+
+InterpretResult vm_evalRun(Value *value, ObjClosure *closure) {
+  if (AS_CLOSURE(peek(0)) != closure)
+    push(OBJ_VAL(OBJ_CAST(closure)));
+  failOnRuntimeErr = true;
+  int saveFrameCnt = vm.frameCount;
+
+  // turn of debugger during eval
+  DebugStates oldDbgState = debugger.state;
+  debugger.state = DBG_RUN;
+
+  call(closure, 0);
+  InterpretResult res = run();
+  *value = (res == INTERPRET_OK) ? pop() : NIL_VAL;
+  pop(); // function
+
+  // restore state
+  debugger.state = oldDbgState;
+  failOnRuntimeErr = true;
+  vm.frameCount = saveFrameCnt;
+  return res;
+}
+
+InterpretResult vm_eval(Value *value, const char *source) {
+  ObjClosure *closure;
+
+  InterpretResult res = vm_evalBuild(&closure, source);
+  if (res != INTERPRET_OK) return res;
+
+  return vm_evalRun(value, closure);
 }
 
 void addModuleVM(Module *module) {
@@ -611,7 +671,7 @@ Module *getModule(const char *path) {
 }
 
 Module *getCurrentModule() {
-  return vm.frames[vm.frameCount-1].module;
+  return vm.frames[vm.frameCount-1].closure->function->chunk.module;
 }
 
 void delModuleVM(Module *module) {

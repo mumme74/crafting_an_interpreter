@@ -36,8 +36,14 @@ typedef struct {
       line;
 } Token;
 
+// initalize scanner
 void initScanner(const char *source);
+// scan next token
 Token scanToken();
+// save state of current scanner
+void scannerStashPush();
+// restore scanner to saved state
+bool scannerStashPop();
 
 extern const char *keywords[];
 extern const size_t keywordCnt;

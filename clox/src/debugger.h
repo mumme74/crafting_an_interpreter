@@ -3,6 +3,8 @@
 
 #include "module.h"
 
+typedef struct ObjClosure ObjClosure;
+
 typedef enum {
   // run continiously, ignore breakpoints
   DBG_RUN,
@@ -24,12 +26,14 @@ typedef struct Breakpoint {
   Module *module;
   struct Breakpoint *next;
   int line, ignoreCount, hits;
+  const char *condition;
+  ObjClosure *evalCondition;
   bool enabled;
 } Breakpoint;
 
 typedef struct Watchpoint {
   struct Watchpoint *next;
-  const char *ident; // name of variable
+  const char *expr; // the expression to evaluate
 } Watchpoint;
 
 typedef struct Debugger {
@@ -72,13 +76,13 @@ bool clearBreakpointByIndex(int brkpntNr);
 // set a new watchpoint
 void setWatchpoint(Watchpoint *watchpoint);
 // create and insert a new watchpoint looking at ident
-void setWatchpointByIdent(const char *ident);
+void setWatchpointByExpr(const char *expr);
 // removes watchpoint from watchpoints and frees watchpoint
 bool clearWatchpoint(Watchpoint *watchpoint);
-// removes watchpoint with name ident
-bool clearWatchPointByIdent(const char *ident);
-// get the watchpoint looking at ident
-Watchpoint *getWatchpoint(const char *ident);
+// removes watchpoint with expr
+bool clearWatchPointByExpr(const char *expr);
+// get the watchpoint matching expr
+Watchpoint *getWatchpoint(const char *expr);
 // set specific debugger commands, such as a debug breakpoint file.
 // it borrows ownership
 void setInitCommands(const char *debuggerCmds);
@@ -90,7 +94,7 @@ void runInitCommands();
 void resumeDebugger();
 
 // on GC mark phase
-void markDebugger();
+void markDebuggerRoots(ObjFlags flags);
 
 // when vm does next expression
 void onNextTick();

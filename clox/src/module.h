@@ -6,11 +6,11 @@
 typedef enum InterpretResult InterpretResult;
 
 typedef struct Module {
+  Table  exports;
   const char *source;
   ObjString *name, *path;
   ObjFunction *rootFunction;
   ObjClosure *closure;
-  Table  exports;
   Module *next;
 } Module;
 

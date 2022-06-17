@@ -71,6 +71,10 @@ bool valuesEqual(Value a, Value b) {
 #endif
 }
 
+bool isFalsey(Value value) {
+  return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
 const char *typeofValue(Value value) {
 #ifdef NAN_BOXING
    if (IS_BOOL(value)) {

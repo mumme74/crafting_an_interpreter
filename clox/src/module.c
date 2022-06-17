@@ -36,7 +36,7 @@ bool compileModule(Module *module, const char *source) {
   memcpy(src, source, len);
   module->source = src;
 
-  module->rootFunction = compile(source);
+  module->rootFunction = compile(source, module, TYPE_SCRIPT);
   setGCenabled(enabled);
 
   return module->rootFunction != NULL;
@@ -48,9 +48,18 @@ InterpretResult interpretModule(Module *module) {
   module->closure = newClosure(module->rootFunction);
   push(OBJ_VAL(OBJ_CAST(module->closure)));
   setGCenabled(enabled);
-
   return interpretVM(module);
 }
+
+/*
+InterpretResult interpretModuleEval(ObjFunction *function) {
+  bool enabled = setGCenabled(false);
+  ObjClosure *closure = newClosure(function);
+  push(OBJ_VAL(OBJ_CAST(closure)));
+  setGCenabled(enabled);
+  return interpretVMeval(closure);
+}
+*/
 
 InterpretResult loadModule(Module *module) {
   //vm.currentModule = module;

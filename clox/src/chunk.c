@@ -2,12 +2,15 @@
 
 #include "chunk.h"
 #include "memory.h"
+#include "compiler.h"
 #include "vm.h"
 
 void initChunk(Chunk *chunk) {
   chunk->count = chunk->capacity = 0;
   chunk->code = NULL;
   chunk->lines = NULL;
+  chunk->module = NULL;
+  chunk->compiler = NULL;
   initValueArray(&chunk->constants);
 }
 
@@ -15,6 +18,7 @@ void freeChunk(Chunk *chunk) {
   FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
   FREE_ARRAY(int, chunk->lines, chunk->capacity);
   freeValueArray(&chunk->constants);
+  FREE(Compiler, chunk->compiler);
   initChunk(chunk);
 }
 

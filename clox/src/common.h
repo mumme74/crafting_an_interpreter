@@ -5,17 +5,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DEBUG_STRESS_GC
+//#define DEBUG_STRESS_GC
 //#define DEBUG_STRESS_GC_OLDER
 //#define DEBUG_LOG_GC
-//#define DEBUG_LOG_GC_MARK 0
+#define DEBUG_LOG_GC_MARK 0
 //#define DEBUG_LOG_GC_FREE 0
-//#define DEBUG_LOG_GC_ALLOC 0
+#define DEBUG_LOG_GC_ALLOC 0
 
-#define DEBUG_TRACE_EXECUTION
-#define DEBUG_PRINT_CODE
+//#define DEBUG_TRACE_EXECUTION
+//#define DEBUG_PRINT_CODE
 
-#define LOX_VERSION "0.1"
 
 //#define NAN_BOXING
 
@@ -23,6 +22,7 @@
 
 #define UINT8_COUNT (UINT8_MAX + 1)
 
+#define LOX_VERSION "0.1"
 
 typedef uint8_t ObjFlags;
 

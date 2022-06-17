@@ -101,26 +101,6 @@ typedef struct ParseRule {
   Precedence precedence;
 } ParseRule;
 
-// a local variable on stack
-typedef struct Local {
-  Token name;
-  int depth;
-  bool isCaptured;
-} Local;
-
-// a upvalue (when a closure occurs)
-typedef struct Upvalue {
-  uint8_t index;
-  bool isLocal;
-} Upvalue;
-
-// which type of function is is
-typedef enum {
-  TYPE_METHOD,
-  TYPE_FUNCTION,
-  TYPE_INITIALIZER,
-  TYPE_SCRIPT
-} FunctionType;
 
 // this obj is one for each break och continue that needs patching
 // when we now how big the loop is
@@ -135,18 +115,6 @@ typedef struct LoopJumps {
             *patchBreak;
   struct LoopJumps *next; // in case many nested loops
 } LoopJumps;
-
-// each function gets a compiler object
-typedef struct Compiler {
-  struct Compiler* enclosing;
-  ObjFunction *function;
-  FunctionType type;
-  Local locals[UINT8_COUNT];
-  Upvalue upvalues[UINT8_COUNT];
-  LoopJumps *loopJumps;
-  int localCount,
-      scopeDepth;
-} Compiler;
 
 // used during parsing to determine if class is inherited
 typedef struct ClassCompiler {
@@ -167,7 +135,7 @@ static void declaration();
 static uint8_t makeConstant(Value value);
 static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
-static void initCompiler(Compiler *compiler, FunctionType type);
+static void initCompiler(Compiler *compiler, Module *module, FunctionType type);
 static void namedVariable(Token name, bool canAssign);
 static Token syntheticToken(const char* text);
 static void variable(bool canAssign);
@@ -552,10 +520,19 @@ static void block() {
   consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
+static void functionUpvalues(Compiler *compiler, ObjFunction *function) {
+  emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(OBJ_CAST(function))));
+
+  for (int i = 0; i < function->upvalueCount; ++i) {
+    emitByte(compiler->upvalues[i].isLocal ? 1 : 0);
+    emitByte(compiler->upvalues[i].index);
+  }
+}
+
 // parses a function
 static void function(FunctionType type) {
-  Compiler compiler;
-  initCompiler(&compiler, type);
+  Compiler *compiler = ALLOCATE(Compiler, 1);
+  initCompiler(compiler, current->function->chunk.module, type);
   beginScope();
 
   consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
@@ -574,12 +551,7 @@ static void function(FunctionType type) {
   block();
 
   ObjFunction *function = endCompiler();
-  emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(OBJ_CAST(function))));
-
-  for (int i = 0; i < function->upvalueCount; ++i) {
-    emitByte(compiler.upvalues[i].isLocal ? 1 : 0);
-    emitByte(compiler.upvalues[i].index);
-  }
+  functionUpvalues(compiler, function);
 }
 
 // declare a class method
@@ -1294,31 +1266,35 @@ static ParseRule* getRule(TokenType type) {
 }
 
 // initializes the compiler
-static void initCompiler(Compiler *compiler, FunctionType type) {
+static void initCompiler(Compiler *compiler, Module *module, FunctionType type) {
   assert(compiler != current && "Setting itself as enclosing compiler.");
   compiler->enclosing = current;
   compiler->function = NULL;
   compiler->type = type;
   compiler->localCount = compiler->scopeDepth = 0;
   compiler->function = newFunction();
+  compiler->function->chunk.module = module;
+  compiler->function->chunk.compiler = compiler;
   compiler->loopJumps = NULL;
 
   current = compiler;
-  if (type != TYPE_SCRIPT) {
+  if (type != TYPE_SCRIPT && type != TYPE_EVAL) {
     current->function->name = copyString(
                                 parser.previous.start,
                                 parser.previous.length);
   }
 
-  Local *local = &current->locals[current->localCount++];
-  local->depth = 0;
-  local->isCaptured = false;
-  if (type != TYPE_FUNCTION) {
-    local->name.start = "this";
-    local->name.length = 4;
-  } else {
-    local->name.start = "";
-    local->name.length = 0;
+  if (type != TYPE_EVAL) {
+    Local *local = &current->locals[current->localCount++];
+    local->depth = 0;
+    local->isCaptured = false;
+    if (type != TYPE_FUNCTION) {
+      local->name.start = "this";
+      local->name.length = 4;
+    } else {
+      local->name.start = "";
+      local->name.length = 0;
+    }
   }
 }
 
@@ -1332,21 +1308,58 @@ static void initParser(Parser *parser) {
 
 // ---------------------------------------------
 
-ObjFunction *compile(const char *source) {
+ObjFunction *compile(const char *source, Module *module,
+                     FunctionType fnType)
+{
   initScanner(source);
   initParser(&parser);
 
-  Compiler compiler;
-  initCompiler(&compiler, TYPE_SCRIPT);
+  Compiler *compiler = ALLOCATE(Compiler, 1);
+  initCompiler(compiler, module, fnType);
 
   advance();
-  while (!match(TOKEN_EOF)) {
+  while (!match(TOKEN_EOF))
     declaration();
-  }
 
   ObjFunction *function = endCompiler();
   current = NULL;
   return parser.hadError ? NULL : function;
+}
+
+// create a compileEval
+ObjFunction *compileEvalExpr(const char *source, Chunk *parentChunk) {
+  // save state
+  scannerStashPush();
+  Parser oldParser;
+  memcpy(&oldParser, &parser, sizeof(parser));
+
+  Compiler *oldCurrent = current;
+  current = parentChunk->compiler;
+  initScanner(source);
+  initParser(&parser);
+
+  Compiler *compiler = ALLOCATE(Compiler, 1);
+  initCompiler(compiler, parentChunk->module, TYPE_EVAL);
+  ObjFunction *function = current->function;
+
+  advance();
+  while (!match(TOKEN_EOF))
+    expression();
+
+  //functionUpvalues(compiler, function);
+  emitByte(OP_EVAL_EXIT);
+
+#ifdef DEBUG_PRINT_CODE
+  if (!parser.hadError)
+    disassembleChunk(currentChunk(), "code");
+#endif
+
+  // restore state
+  current = oldCurrent;
+  scannerStashPop();
+  memcpy(&parser, &oldParser, sizeof(parser));
+
+  return function;
 }
 
 void markCompilerRoots(ObjFlags flags) {

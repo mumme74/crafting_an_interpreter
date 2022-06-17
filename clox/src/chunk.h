@@ -4,6 +4,9 @@
 #include "common.h"
 #include "value.h"
 
+typedef struct Module Module;
+typedef struct Compiler Compiler;
+
 typedef enum {
   // Any change here must also be changed in Computed goto labels
   OP_CONSTANT,
@@ -40,6 +43,7 @@ typedef enum {
   OP_CLOSURE,
   OP_CLOSE_UPVALUE,
   OP_RETURN,
+  OP_EVAL_EXIT,
   OP_THROW,
   //OP_TRY,
   //OP_CATCH,
@@ -54,9 +58,11 @@ typedef enum {
 typedef struct {
   int count;
   int capacity;
+  ValueArray constants;
   uint8_t *code;
   int *lines;
-  ValueArray constants;
+  Module *module;
+  Compiler *compiler;
 } Chunk;
 
 void initChunk(Chunk *chunk);

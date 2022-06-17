@@ -129,6 +129,7 @@ static void markArray(ValueArray* array, ObjFlags flags) {
 static void markRoots(ObjFlags flags) {
   markRootsVM(flags);
   markCompilerRoots(flags);
+  markDebuggerRoots(flags);
 }
 
 static void traceReferences(ObjFlags flags) {
