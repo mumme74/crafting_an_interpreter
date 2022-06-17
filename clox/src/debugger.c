@@ -302,6 +302,7 @@ static const char *readWord() {
   return buf;
 }
 
+// reads a filepath
 static const char *readPath() {
   skipWhitespace();
   static char buf[1024] = {0}, *pbuf = buf;
@@ -311,6 +312,18 @@ static const char *readPath() {
   while (isspace(*pbuf)) --pbuf;
   *pbuf = '\0';
   return buf;
+}
+
+// reads from current pos to end of row
+static int readRestOfRow(char **row) {
+  const char *start = cmd;
+  while(!isAtEnd())
+    ++cmd;
+
+  *row = ALLOCATE(char, cmd - start + 1);
+  memcpy(*row, start, cmd - start);
+  (*row)[cmd-start] = '\0';
+  return cmd - start;
 }
 
 static void nfo_brk() {
@@ -517,7 +530,7 @@ static void break_() {
     printf("Module with path:%s not loaded.\n", path);
     return;
   }
-  setBreakpointAtLine(line, mod);
+  setBreakpointAtLine(lnNr, mod);
   printf("Set breakpoint at %s:%d\n", path, lnNr);
 }
 
@@ -530,7 +543,7 @@ static void clear_() {
     printf("Module with path:%s not loaded.\n", path);
     return;
   }
-  if (clearBreakpointAtLine(line, mod)) {
+  if (clearBreakpointAtLine(lnNr, mod)) {
     printf("Cleared breakpoint at %s:%d\n", path, lnNr);
   } else {
     printf("Breakpoint not found, %s:%d \n", path, line);
@@ -539,12 +552,8 @@ static void clear_() {
 }
 
 static void comment_() {
-  while (*cmd != '\0') {
-    if (*cmd++ == '\n') {
-      cmd++; // eat up closing '\n'
-      return;
-    }
-  }
+  while (!isAtEnd())
+    ++cmd;
 }
 
 static void cond_() {
@@ -619,16 +628,18 @@ static void down_() {
 
 static void echo_() {
   skipWhitespace();
-  const char *start = cmd,
-             *end = cmd;
-  while (*end != '\0') {
-    if (*end++ == '\n' && *end != '\\')
+  const char *start = cmd;
+  while (*cmd != '\0') {
+    if (*cmd != '\\' && *(cmd +1) == '\n')
       break;
+    ++cmd;
   }
 
-  while (start < end) {
-    if (*start != '\\')
-      putc(*start, stdin);
+  while (start <= cmd) {
+    if (*start == '\\' && *(++start) == 'n')
+      putc('\n', stdout);
+    else
+      putc(*start, stdout);
     ++start;
   }
 }
@@ -713,13 +724,18 @@ static void up_() {
 }
 
 static void watch_() {
+  skipWhitespace();
   if (*cmd == '\0') {
     printf("Expect a expression as param to watch.\n");
     return;
   }
 
-  printf("Setting watch %s\n", cmd);
-  setWatchpointByIdent(cmd);
+  char *row;
+  int len = readRestOfRow(&row);
+
+  printf("Setting watch %s\n", row);
+  setWatchpointByIdent(row);
+  FREE_ARRAY(char, row, len+1);
 }
 
 const CmdTbl cmds[] = {
@@ -766,11 +782,17 @@ next_cmd:
       if (memcmp(cmd, cmds[i].name, cmds[i].nameLen) == 0) {
         cmd += cmds[i].nameLen;
         cmds[i].parseFn();
+        while (*cmd == '\n')
+          cmd++; // eat up closing '\n'
         goto next_cmd;
       }
     }
 
-    printf("Unrecognized command:%s\n", commands);
+    // not found, print error message
+    char *row;
+    int rowlen = readRestOfRow(&row);
+    fprintf(stderr, "***Unrecognized command:%s\n", row);
+    FREE_ARRAY(char, row, rowlen+1);
     break;
   }
 }

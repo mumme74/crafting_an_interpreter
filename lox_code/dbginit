@@ -1,0 +1,8 @@
+# this is a debug init test
+
+break 6
+watch tmp
+echo This is a debug test\n\
+With many lines
+
+continue
