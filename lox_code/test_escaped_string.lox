@@ -3,7 +3,7 @@ print "test_escaped_string.lox";
 var str1 = "hej = \"nej\";";
 print str1;
 
-str1 += "\n\tnext row indenteted'";
+str1 += "\n\tnext row indented'";
 print str1;
 
 str1 += "\n\bbell \0 after \\0";

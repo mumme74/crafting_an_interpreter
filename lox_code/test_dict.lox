@@ -12,3 +12,6 @@ dict1.hej += " for me";
 print dict1.hej;
 
 print dict1.hej = "nej";
+
+var key = "hej";
+print dict1[key];
