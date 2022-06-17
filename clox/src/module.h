@@ -10,13 +10,12 @@ typedef struct Module {
   ObjString *name, *path;
   ObjFunction *rootFunction;
   ObjClosure *closure;
-  Table  globals;
   Table  exports;
   Module *next;
 } Module;
 
 // create a new module, reciever takes ownership
-Module *createModule(const char *name);
+Module *createModule(const char *name, const char *path);
 
 // compile source into module
 bool compileModule(Module *module, const char *source);
@@ -25,7 +24,7 @@ bool compileModule(Module *module, const char *source);
 InterpretResult interpretModule(Module *module);
 
 // load from file at path into module
-InterpretResult loadModule(Module *module, const char *path);
+InterpretResult loadModule(Module *module);
 
 // init module
 void initModule(Module *module);

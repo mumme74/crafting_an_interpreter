@@ -11,14 +11,17 @@
 #include "chunk.h"
 #include "scanner.h"
 
+// exported
+Debugger debugger;
+
 // -----------------------------------------------------
 
-static Debugger dbg;
 static CallFrame *frame = NULL,
                  *breakFrame = NULL;
 static int line = 0;
 
-static void parseCommand(char *buffer);
+static void parseCommands(const char *buffer);
+static const char *initCommands = NULL;
 
 
 // prints the source around baseline,
@@ -30,15 +33,16 @@ static void printSource(int baseline, int window) {
       toLine   = baseline +window;
   int lineCnt  = 1;
 
-  const char *src = vm.currentModule->source;
+  Module *module = getCurrentModule();
+  const char *src = module->source;
   putc('\n', stdout);
 
   while (*src != '\0') {
     if (*src == '\n') ++lineCnt;
     if (lineCnt >= fromLine && lineCnt <= toLine) {
-      if (*src == '\n' || src == vm.currentModule->source) {
+      if (*src == '\n' || src == module->source) {
         printf("\n%-4d%s ", lineCnt, (lineCnt == line ? "*": " "));
-        if (src == vm.currentModule->source) putc(*src, stdout);
+        if (src == module->source) putc(*src, stdout);
       } else
         putc(*src, stdout);
     } if (lineCnt > toLine) break;
@@ -57,7 +61,7 @@ static void printWatchpoint(Watchpoint *wp) {
 }
 
 static void printWatchpoints() {
-  Watchpoint *wp = dbg.watchpoints;
+  Watchpoint *wp = debugger.watchpoints;
   while (wp != NULL) {
     if (frame->closure == (ObjClosure*)wp->ident) {
       printWatchpoint(wp);
@@ -72,7 +76,7 @@ static void processEvents() {
   static char *prev = NULL;
 
   rl_completer_word_break_characters = " .";
-  while (dbg.isHalted) {
+  while (debugger.isHalted) {
     printf("**** debugger interface ****\n");
     char *buffer = readline("> ");
     if (buffer != NULL) {
@@ -85,7 +89,7 @@ static void processEvents() {
         free(buffer);
         buffer = prev;
       }
-      parseCommand(buffer);
+      parseCommands(buffer);
     }
   }
 }
@@ -108,10 +112,21 @@ static void checkNext() {
     if (haltOn[i] == *frame->ip) {
       line = frame->closure->function->chunk.lines[
         (int)(frame->ip - frame->closure->function->chunk.code)];
-      dbg.isHalted = true;
-      printSource(line, 2);
+      debugger.isHalted = true;
+      printSource(line, 0);
       processEvents();
     }
+  }
+}
+
+static void checkStepOut() {
+  frame = &vm.frames[vm.frameCount -1];
+  if (*frame->ip == OP_RETURN) {
+    line = frame->closure->function->chunk.lines[
+      (int)(frame->ip - frame->closure->function->chunk.code)];
+    debugger.isHalted = true;
+    printSource(line, 0);
+    processEvents();
   }
 }
 
@@ -120,18 +135,19 @@ static void checkBreakpoints() {
   line = frame->closure->function->chunk.lines[
     (int)(frame->ip - frame->closure->function->chunk.code)];
 
-  Breakpoint *bp = dbg.breakpoints;
+  Module *module = getCurrentModule();
+  Breakpoint *bp = debugger.breakpoints;
   int cnt = 1;
   while (bp != NULL) {
-    if (bp->module == vm.currentModule &&
+    if (bp->module == module &&
         bp->line == line)
     {
       if (!bp->enabled) return;
       if (bp->hits++ >= bp->ignoreCount) {
-        dbg.isHalted = true;
+        debugger.isHalted = true;
         printf("\n* stopped at breakpoint %d in %s\n* file:%s\n",
-               ++cnt, vm.currentModule->name->chars,
-               vm.currentModule->path->chars);
+               ++cnt, module->name->chars,
+               module->path->chars);
         printSource(line, 2);
         processEvents();
       }
@@ -238,28 +254,6 @@ count      = [0-9]+ ;
 expression = [^\n]* ;
 */
 
-/*
-typedef enum DbgTokenType {
-  DBG_TOK_BACKTRACE, DBG_TOK_BREAK, DBG_TOK_CLEAR,
-  DBG_TOK_CONDITION, DBG_TOK_CONTINUE,
-  DBG_TOK_DELETE, DBG_TOK_DISABLE,
-  DBG_TOK_DOWN, DBG_TOK_ENABLE, DBG_TOK_FRAME,
-  DBG_TOK_HELP, DBG_TOK_IGNORE, DBG_TOK_INFO,
-  DBG_TOK_PRINT, DBG_TOK_QUIT, DBG_TOK_STEP,
-  DBG_TOK_UP, DBG_TOK_WATCH,
-  DBG_TOK_LOCALS, DBG_TOK_GLOBALS,
-  DBG_TOK_LITERAL, DBG_NUMBER
-} DbgTokenType;
-
-typedef struct DbgToken {
-  const char *len;
-  int len;
-  DbgTokenType type;
-  DbgToken *next;
-} DbgToken;
-
-*/
-
 typedef struct CmdTbl {
   const char *name;
   int nameLen;
@@ -267,23 +261,28 @@ typedef struct CmdTbl {
 } CmdTbl;
 
 // command string, moves when we parse
-static char *cmd = NULL;
+static const char *cmd = NULL;
+
+// checks if at end
+static bool isAtEnd() {
+  return *cmd == '\0' || *cmd == '\n';
+}
 
 // ignore whitespace
 static void skipWhitespace() {
-  while (*cmd <= ' ' && *cmd != '\0')
+  while (!isAtEnd() && isspace(*cmd))
     ++cmd;
 }
 
 // read integer
 static int readInt() {
-  const char *start = cmd;
+  char buf[25];
+  char *pbuf = buf;
+
   while (*cmd >= '0' && *cmd <= '9')
-    ++cmd;
-  const char c = *cmd;
-  *cmd = '\0';
-  int i = atoi(start);
-  *cmd = c;
+    *pbuf++ = *cmd++;
+  *pbuf = '\0';
+  int i = atoi(buf);
   return i;
 }
 
@@ -306,7 +305,7 @@ static const char *readWord() {
 static const char *readPath() {
   skipWhitespace();
   static char buf[1024] = {0}, *pbuf = buf;
-  while (*cmd != ':' && *cmd != '\0')
+  while (*cmd != ':' && !isAtEnd())
     *pbuf++ = *cmd++;
   // trim whitespace at end
   while (isspace(*pbuf)) --pbuf;
@@ -406,6 +405,9 @@ const HlpInfo hlpInfos[] = {
     "down", 4,
     "down            Go down in backtrace.\n"
   },{
+    "echo", 4,
+    "echo  string    Prints string, might be multiline if escaped.\n"
+  },{
     "enable", 6,
     "enable          Enable current breakpoint.\n"
     "enable nr       Enable breakpoint with nr.\n"
@@ -417,6 +419,9 @@ const HlpInfo hlpInfos[] = {
     "frame", 5,
     "frame           Select current frame.\n"
     "frame nr        Select frame nr in backtrace.\n"
+  },{
+    "finish", 6,
+    "finish          Run until current function return.\n"
   },{
     "info", 4,
     "info break      Show breakpoints.\n"
@@ -459,7 +464,7 @@ const HlpInfo hlpInfos[] = {
 
 static void help_() {
   skipWhitespace();
-  if (*cmd == '\0') {
+  if (isAtEnd()) {
     for (int i = 0; i < sizeof(hlpInfos) / sizeof(hlpInfos[0]); ++i) {
       printf("\n%s", hlpInfos[i].msg);
     }
@@ -479,7 +484,7 @@ static void help_() {
 static void backtrace_() {
   // FIXME implement
   skipWhitespace();
-  if (*cmd != '\0') {
+  if (!isAtEnd()) {
     int nr = readInt();
     (void)nr;
   }
@@ -488,9 +493,9 @@ static void backtrace_() {
 
 static void readLineAndPath(int *lnNr, const char **path) {
   skipWhitespace();
-  *path = vm.currentModule->path->chars;
+  *path = getCurrentModule()->path->chars;
   *lnNr = line;
-  if (*cmd != '\0') {
+  if (!isAtEnd()) {
     if (isalpha(*cmd)) {
       *path = readPath();
       if (*cmd != ':') {
@@ -533,20 +538,43 @@ static void clear_() {
 
 }
 
+static void comment_() {
+  while (*cmd != '\0') {
+    if (*cmd++ == '\n') {
+      cmd++; // eat up closing '\n'
+      return;
+    }
+  }
+}
+
 static void cond_() {
+  skipWhitespace();
+  if (isAtEnd() || !isdigit(*cmd)) {
+    printf("Expect breakpoint nr after 'cond'.\n");
+    return;
+  }
+
+  int nr = readInt();
+  skipWhitespace();
+
+  if (isAtEnd()) {
+    printf("Expect condition for breakpoint %d.\n", nr);
+    return;
+  }
+
   // FIXME implement
   printf("cond\n");
 }
 
 static void continue_() {
   breakFrame = NULL;
-  dbg.state = DBG_ARMED;
-  dbg.isHalted = false;
+  debugger.state = DBG_ARMED;
+  debugger.isHalted = false;
 }
 
 static void delete_() {
   skipWhitespace();
-  if (*cmd == '\0' || !isdigit(*cmd)) {
+  if (isAtEnd() || !isdigit(*cmd)) {
     printf("Expects breakpoint nr after delete command.\n");
     return;
   }
@@ -557,7 +585,7 @@ static void delete_() {
 
 static void setEnable(const char *cmd, bool state) {
   skipWhitespace();
-  if (*cmd != '\0') {
+  if (isAtEnd()) {
     if (!isdigit(*cmd)) {
       printf("Expect breakpoint nr after %s command.\n", cmd);
     }
@@ -573,7 +601,7 @@ static void setEnable(const char *cmd, bool state) {
   }
 
   // change all
-  Breakpoint *bp = dbg.breakpoints;
+  Breakpoint *bp = debugger.breakpoints;
   while (bp != NULL) {
     bp->enabled = state;
     bp = bp->next;
@@ -589,6 +617,22 @@ static void down_() {
   printf("down\n");
 }
 
+static void echo_() {
+  skipWhitespace();
+  const char *start = cmd,
+             *end = cmd;
+  while (*end != '\0') {
+    if (*end++ == '\n' && *end != '\\')
+      break;
+  }
+
+  while (start < end) {
+    if (*start != '\\')
+      putc(*start, stdin);
+    ++start;
+  }
+}
+
 static void enable_() {
   setEnable("enable", true);
 }
@@ -596,7 +640,7 @@ static void enable_() {
 static void frame_() {
   // FIXME implement
   skipWhitespace();
-  if (*cmd != '\0') {
+  if (isAtEnd()) {
     if (!isdigit(*cmd)) {
       printf("Expect nr after frame\n");
       return;
@@ -608,16 +652,21 @@ static void frame_() {
   printf("Select current frame");
 }
 
+static void finish_() {
+  debugger.isHalted = false;
+  debugger.state = DBG_STEP_OUT;
+}
+
 static void ignore_() {
   skipWhitespace();
-  if (*cmd != '\0' || !isdigit(*cmd)) {
+  if (isAtEnd() || !isdigit(*cmd)) {
     printf("Expect breakpoint nr after ignore cmd\n");
     return;
   }
 
   int nr = readInt();
   skipWhitespace();
-  if (*cmd != '\0' || !isdigit(*cmd)) {
+  if (isAtEnd() || !isdigit(*cmd)) {
     printf("Expect ignore count after breakpoint nr.\n");
     return;
   }
@@ -632,14 +681,14 @@ static void ignore_() {
 
 static void next_() {
   breakFrame = frame;
-  dbg.state = DBG_NEXT;
-  dbg.isHalted = false;
+  debugger.state = DBG_NEXT;
+  debugger.isHalted = false;
 }
 
 static void print_() {
   // FIXME implement
   skipWhitespace();
-  if (*cmd == '\0') {
+  if (isAtEnd()) {
     printf("Expect a expression as param to print.\n");
     return;
   }
@@ -654,8 +703,8 @@ static void quit_() {
 
 static void step_() {
   breakFrame = NULL;
-  dbg.state = DBG_STEP;
-  dbg.isHalted = false;
+  debugger.state = DBG_STEP;
+  debugger.isHalted = false;
 }
 
 static void up_() {
@@ -686,9 +735,11 @@ const CmdTbl cmds[] = {
   { "disable", 7, disable_},
   { "dis", 3, disable_},
   { "down", 4, down_},
+  { "echo", 4, echo_},
   { "enable", 6, enable_},
   { "en", 2, enable_},
   { "frame", 5, frame_},
+  { "finish", 6, finish_},
   { "help", 4, help_ },
   { "info", 4, info_},
   { "ignore", 6, ignore_},
@@ -700,65 +751,28 @@ const CmdTbl cmds[] = {
   { "step", 4, step_},
   { "s", 1, step_},
   { "up", 2, up_},
-  { "watch", 5, watch_}
+  { "watch", 5, watch_},
+  { "#", 1, comment_}
 };
 
-static void parseCommand(char *command) {
-  if (!command) return;
-  cmd = command;
+static void parseCommands(const char *commands) {
+  if (!commands) return;
+  cmd = commands;
   skipWhitespace();
-  for (int i = 0; i < sizeof(cmds) / sizeof(cmds[0]); ++i) {
-    if (memcmp(cmd, cmds[i].name, cmds[i].nameLen) == 0) {
-      cmd += cmds[i].nameLen;
-      cmds[i].parseFn();
-      return;
+
+next_cmd:
+  while(!isAtEnd()) {
+    for (int i = 0; i < sizeof(cmds) / sizeof(cmds[0]); ++i) {
+      if (memcmp(cmd, cmds[i].name, cmds[i].nameLen) == 0) {
+        cmd += cmds[i].nameLen;
+        cmds[i].parseFn();
+        goto next_cmd;
+      }
     }
+
+    printf("Unrecognized command:%s\n", commands);
+    break;
   }
-
-  printf("Unrecognized command:%s\n", command);
-
-  /*switch (*cmd++) {
-  case 'c':
-    dbg.state = DBG_ARMED;
-    dbg.isHalted = false;
-    return;
-  case 's':
-    dbg.state = DBG_STEP;
-    dbg.isHalted = false;
-    return;
-  case 'n':
-    dbg.state = DBG_NEXT;
-    dbg.isHalted = false;
-    return;
-  case 'o':
-    dbg.state = DBG_STEP_OUT;
-    dbg.isHalted = false;
-    return;
-  case 'r':
-    dbg.state = DBG_RUN;
-    dbg.isHalted = false;
-    return;
-  case 'q': exit(0);
-  case 'b':
-    skipWhitespace();
-    setBreakpointAtLine(readInt(), vm.currentModule);
-    return;
-  case 'w':
-    skipWhitespace();
-    const char *wd = readWord();
-    setWatchpointByIdent(wd);
-    return;
-  case 'p':
-    skipWhitespace();
-    const char *ident = readWord();
-    printIdent(ident);
-    return;
-  case 'l':
-    skipWhitespace();
-    printSource(readInt(), 5);
-    return;
-  default: printf("Unrecognized command:%s\n", command);
-  } */
 }
 
 // end command parser
@@ -789,23 +803,23 @@ void freeWatchpoint(Watchpoint *watchpoint) {
 }
 
 void initDebugger() {
-  dbg.breakpoints = NULL;
-  dbg.watchpoints = NULL;
-  dbg.state = DBG_RUN;
-  dbg.isHalted = false;
+  debugger.breakpoints = NULL;
+  debugger.watchpoints = NULL;
+  debugger.state = DBG_RUN;
+  debugger.isHalted = false;
 }
 
 DebugStates debuggerState() {
-  return dbg.state;
+  return debugger.state;
 }
 
 void setDebuggerState(DebugStates state) {
-  dbg.state = state;
+  debugger.state = state;
 }
 
 void setBreakpoint(Breakpoint *breakpoint) {
-  Breakpoint *bp = dbg.breakpoints,
-             **prev = &dbg.breakpoints;
+  Breakpoint *bp = debugger.breakpoints,
+             **prev = &debugger.breakpoints;
   while(bp != NULL) {
     if (bp->module == breakpoint->module) {
       if (bp->line == breakpoint->line) {
@@ -837,7 +851,7 @@ void setBreakpointAtLine(int line, Module *module) {
 }
 
 Breakpoint *getBreakpoint(int line, Module *module) {
-  Breakpoint *bp = dbg.breakpoints;
+  Breakpoint *bp = debugger.breakpoints;
   while (bp != NULL) {
     if (bp->module == module && bp->line == line)
       return bp;
@@ -849,7 +863,7 @@ Breakpoint *getBreakpoint(int line, Module *module) {
 // get breakpoint at index or NULL if none existing
 Breakpoint *getBreakpointByIndex(int brkpntNr) {
   int nr = 0;
-  Breakpoint *bp = dbg.breakpoints;
+  Breakpoint *bp = debugger.breakpoints;
   while (bp != NULL) {
     if (brkpntNr == nr)
       return bp;
@@ -861,7 +875,7 @@ Breakpoint *getBreakpointByIndex(int brkpntNr) {
 
 int getBreakpointIndex(Breakpoint *breakpoint) {
   int idx = 0;
-  Breakpoint *bp = dbg.breakpoints;
+  Breakpoint *bp = debugger.breakpoints;
   while (bp != NULL) {
     if (bp == breakpoint)
       return idx;
@@ -872,8 +886,8 @@ int getBreakpointIndex(Breakpoint *breakpoint) {
 }
 
 bool clearBreakpoint(Breakpoint *breakpoint) {
-  Breakpoint *bp = dbg.breakpoints,
-             **prev = &dbg.breakpoints;
+  Breakpoint *bp = debugger.breakpoints,
+             **prev = &debugger.breakpoints;
   while(bp != NULL) {
     if (bp->module == breakpoint->module &&
         bp->line == breakpoint->line)
@@ -902,8 +916,8 @@ bool clearBreakpointByIndex(int brkpntNr) {
 }
 
 void setWatchpoint(Watchpoint *watchpoint) {
-  Watchpoint *wp = dbg.watchpoints,
-            **prev = &dbg.watchpoints;
+  Watchpoint *wp = debugger.watchpoints,
+            **prev = &debugger.watchpoints;
   while (wp != NULL) {
     if (strcmp(wp->ident, watchpoint->ident) == 0) {
       // replace it
@@ -927,8 +941,8 @@ void setWatchpointByIdent(const char *ident) {
 }
 
 bool clearWatchpoint(Watchpoint *watchpoint) {
-  Watchpoint *wp = dbg.watchpoints,
-            **prev = &dbg.watchpoints;
+  Watchpoint *wp = debugger.watchpoints,
+            **prev = &debugger.watchpoints;
   while (wp != NULL) {
     if (wp == watchpoint) {
       // replace it
@@ -952,7 +966,7 @@ bool clearWatchPointByIdent(const char *ident) {
 
 // get the watchpoint looking at ident in module and closure
 Watchpoint *getWatchpoint(const char *ident) {
-  Watchpoint *wp = dbg.watchpoints;
+  Watchpoint *wp = debugger.watchpoints;
   while (wp != NULL) {
     if (strcmp(wp->ident, ident) == 0) {
       return wp;
@@ -961,8 +975,17 @@ Watchpoint *getWatchpoint(const char *ident) {
   return NULL;
 }
 
+void setInitCommands(const char *debuggerCmds) {
+  initCommands = debuggerCmds;
+}
+
+void runInitCommands() {
+  if (initCommands && *initCommands != '\0')
+    parseCommands(initCommands);
+}
+
 void resumeDebugger() {
-  dbg.isHalted = false;
+  debugger.isHalted = false;
 }
 
 void markDebugger() {
@@ -970,16 +993,17 @@ void markDebugger() {
 }
 
 void onNextTick() {
-  switch (dbg.state) {
+  switch (debugger.state) {
   case DBG_RUN: return;
   case DBG_STEP_OUT:
+    return checkStepOut();
   case DBG_ARMED:
     return checkBreakpoints();
   case DBG_NEXT:
     return checkNext();
   case DBG_STEP: // fall through
   case DBG_HALT:
-    dbg.isHalted = true;
+    debugger.isHalted = true;
     return processEvents();
   case DBG_STOP: break;
   }

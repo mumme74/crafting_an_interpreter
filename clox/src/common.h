@@ -5,15 +5,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-//#define DEBUG_STRESS_GC
+#define DEBUG_STRESS_GC
 //#define DEBUG_STRESS_GC_OLDER
-#define DEBUG_LOG_GC
-#define DEBUG_LOG_GC_MARK 0
-#define DEBUG_LOG_GC_FREE 0
-#define DEBUG_LOG_GC_ALLOC 0
+//#define DEBUG_LOG_GC
+//#define DEBUG_LOG_GC_MARK 0
+//#define DEBUG_LOG_GC_FREE 0
+//#define DEBUG_LOG_GC_ALLOC 0
 
 #define DEBUG_TRACE_EXECUTION
 #define DEBUG_PRINT_CODE
+
+#define LOX_VERSION "0.1"
 
 //#define NAN_BOXING
 
@@ -23,5 +25,11 @@
 
 
 typedef uint8_t ObjFlags;
+
+// read contents of file at path, reciever tkaes overship over
+// ALLOCATE chars.
+char *readFile(const char *path);
+// checks if path exists as a file
+bool fileExists(const char *path);
 
 #endif // COMMON_H

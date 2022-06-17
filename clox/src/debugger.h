@@ -79,6 +79,11 @@ bool clearWatchpoint(Watchpoint *watchpoint);
 bool clearWatchPointByIdent(const char *ident);
 // get the watchpoint looking at ident
 Watchpoint *getWatchpoint(const char *ident);
+// set specific debugger commands, such as a debug breakpoint file.
+// it borrows ownership
+void setInitCommands(const char *debuggerCmds);
+// run specific debugger commands, VM calls this one
+void runInitCommands();
 
 // let debugger continue, how far it goes depends on its state
 // and current breakpoints
@@ -89,6 +94,8 @@ void markDebugger();
 
 // when vm does next expression
 void onNextTick();
+
+extern Debugger debugger;
 
 
 #endif // LOX_DEBUGGER_H

@@ -6,16 +6,16 @@
 #include "table.h"
 #include "object.h"
 #include "module.h"
+#include "debugger.h"
 
 #define FRAMES_MAX 64
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
-
-typedef void (*DebugCB)();
 
 typedef struct {
   ObjClosure *closure;
   uint8_t *ip;
   Value *slots;
+  Module *module;
 } CallFrame;
 
 typedef struct {
@@ -24,8 +24,9 @@ typedef struct {
   Value  stack[STACK_MAX];
   Value* stackTop;
   Table  strings;
+  Table  globals;
   Module  *modules;
-  Module  *currentModule;
+  //Module  *currentModule;
   ObjString *initString;
   ObjUpvalue* openUpvalues;
   size_t infantBytesAllocated,
@@ -37,7 +38,6 @@ typedef struct {
   int   grayCount,
         grayCapacity;
   Obj** grayStack;
-  DebugCB debugCB;
 } VM;
 
 typedef enum InterpretResult {
@@ -62,6 +62,9 @@ void addModuleVM(Module *module);
 
 // get a module based from file path
 Module *getModule(const char *path);
+
+// returns currently active module
+Module *getCurrentModule();
 
 // remove module from VM and free it
 void delModuleVM(Module *module);

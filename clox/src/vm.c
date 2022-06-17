@@ -53,7 +53,7 @@ static void defineNative(const char *name, NativeFn function, int arity) {
   ObjString *fnname = copyString(name, (int)strlen(name));
   push(OBJ_VAL(OBJ_CAST(fnname)));
   push(OBJ_VAL(OBJ_CAST(newNative(function, fnname, arity))));
-  tableSet(&vm.currentModule->globals, AS_STRING(vm.stack[0]), vm.stack[1]);
+  tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
   pop();
   pop();
 }
@@ -274,18 +274,21 @@ static InterpretResult run() {
     OP(OP_PRINT), OP(OP_JUMP), OP(OP_JUMP_IF_FALSE), OP(OP_LOOP),
     OP(OP_CALL), OP(OP_INVOKE), OP(OP_SUPER_INVOKE), OP(OP_CLOSURE),
     OP(OP_CLOSE_UPVALUE), OP(OP_RETURN), OP(OP_CLASS),
-    OP(OP_INHERIT), OP(OP_METHOD)
+    OP(OP_INHERIT), OP(OP_METHOD), OP(OP_DICT), OP(OP_DICT_FIELD)
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
-  if (vm.debugCB) vm.debugCB(); \
+  if (vm.debugger.state > DBG_RUN) onNextTick(); \
   goto *labels[instruction = READ_BYTE()]
 # define SWITCH(expr) goto *labels[instruction = READ_BYTE()];
 
 #else
 
 # define CASE(inst)        case inst:
-# define BREAK             if (vm.debugCB) vm.debugCB(); break
+# define BREAK             \
+  if (debugger.state > DBG_RUN) \
+    onNextTick(); \
+  break
 # define SWITCH(expr)   switch(expr)
 #endif
 
@@ -310,7 +313,7 @@ static InterpretResult run() {
     CASE(OP_GET_GLOBAL) {
       ObjString *name = READ_STRING();
       Value value;
-      if (!tableGet(&vm.currentModule->globals, name, &value)) {
+      if (!tableGet(&vm.globals, name, &value)) {
         runtimeError("Undefined variable '%s'.", name->chars);
         return INTERPRET_COMPILE_ERROR;
       }
@@ -356,7 +359,7 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_DEFINE_GLOBAL) {
       ObjString *name = READ_STRING();
-      tableSet(&vm.currentModule->globals, name, peek(0));
+      tableSet(&vm.globals, name, peek(0));
       pop();
     } BREAK;
     CASE(OP_SET_LOCAL) {
@@ -365,8 +368,8 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_SET_GLOBAL) {
       ObjString *name = READ_STRING();
-      if (tableSet(&vm.currentModule->globals, name, peek(0))) {
-        tableDelete(&vm.currentModule->globals, name);
+      if (tableSet(&vm.globals, name, peek(0))) {
+        tableDelete(&vm.globals, name);
         runtimeError("Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
@@ -552,17 +555,19 @@ static void defineBuiltins() {
 
 void initVM() {
   initTable(&vm.strings);
+  initTable(&vm.globals);
   resetStack();
   vm.infantObjects = vm.olderObjects = NULL;
   vm.infantBytesAllocated = 0;
   vm.olderBytesAllocated = 0;
   vm.infantNextGC = INFANT_GC_MIN;
   vm.olderNextGC = OLDER_GC_MIN;
-  vm.modules = vm.currentModule = createModule("__main__");
+  vm.frameCount = 0;
+  vm.modules = NULL;
 
   vm.initString = NULL;
   vm.initString = copyString("init", 4);
-  vm.debugCB = NULL;
+  initDebugger();
 
   defineBuiltins();
 }
@@ -578,19 +583,21 @@ void freeVM() {
   }
 
   freeTable(&vm.strings);
+  freeTable(&vm.globals);
 
   freeObjects();
 }
 
 InterpretResult interpretVM(Module *module) {
+  vm.frames[vm.frameCount].module = module;
   call(module->closure, 0);
+  runInitCommands(); // debugger debug breakpoint file
   return run();
 }
 
 void addModuleVM(Module *module) {
   module->next = vm.modules;
   vm.modules = module;
-  vm.currentModule = module;
 }
 
 Module *getModule(const char *path) {
@@ -603,6 +610,10 @@ Module *getModule(const char *path) {
   return NULL;
 }
 
+Module *getCurrentModule() {
+  return vm.frames[vm.frameCount-1].module;
+}
+
 void delModuleVM(Module *module) {
   if (vm.modules == NULL) return;
 
@@ -610,7 +621,7 @@ void delModuleVM(Module *module) {
   do {
     if (*next == module) {
       *next = (*next)->next;
-      FREE(Module, module);
+      freeModule(module);
       return;
     }
   } while ((*next = (*next)->next));
@@ -634,6 +645,7 @@ void markRootsVM(ObjFlags flags) {
 
   markObject(OBJ_CAST(vm.initString), flags);
   markTable(&vm.strings, flags);
+  markTable(&vm.globals, flags);
 
   Module *mod = vm.modules;
   while (mod != NULL) {
@@ -644,6 +656,7 @@ void markRootsVM(ObjFlags flags) {
 
 void sweepVM(ObjFlags flags) {
   tableRemoveWhite(&vm.strings, flags);
+  tableRemoveWhite(&vm.globals, flags);
 
   Module *mod = vm.modules;
   while (mod != NULL) {

@@ -3,6 +3,7 @@
 
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <getopt.h>
 
 #include "common.h"
 
@@ -13,12 +14,20 @@
 #include "object.h"
 #include "module.h"
 #include "debugger.h"
+#include "memory.h"
 
+static void printUsage() {
+  printf("Lox programming language implementation.\n"
+         "usage: clox -dDvh file1.lox [file2.lox file3.lox ... ]\n"
+         "clox                   open in interactive (REPL) mode.\n\n"
+         "clox  -D debugCommandsFile scriptfile.lox\n\n"
+         "clox  -v           Show version.\n\n"
+         "clox  -h           Show help");
+}
 
 static int runFile(const char* path) {
-  Module *module = createModule("__main__");
-
-  InterpretResult result = loadModule(module, path);
+  Module *module = createModule("__main__", path);
+  InterpretResult result = loadModule(module);
 
   delModuleVM(module);
 
@@ -48,7 +57,7 @@ repl_completion_generator(const char *text, int state) {
     }
   }
 
-  ValueArray globalKeys = tableKeys(&vm.currentModule->globals);
+  ValueArray globalKeys = tableKeys(&vm.globals);
   for (int i = 0, m = 0; i < globalKeys.count; ++i) {
     const char *key = AS_CSTRING(globalKeys.values[i]);
     if (strncmp(key, text, len) == 0) {
@@ -72,7 +81,7 @@ repl_completion(const char *text, int start, int end) {
 
 static void repl() {
   initVM();
-  Module *module = vm.currentModule;
+  Module *module = getCurrentModule();
 
   rl_attempted_completion_function = repl_completion;
   rl_completer_word_break_characters = " .";
@@ -91,30 +100,54 @@ static void repl() {
   }
 }
 
-int
-main(int argc, const char *argv[]) {
+int main(int argc, char * const argv[]) {
+
+  DebugStates initDbgState = DBG_RUN;
+  const char *initDebuggerCmds = NULL;
 
   if (argc == 1) {
     repl();
   } else {
-    int i = 1;
-    DebugCB cb = NULL;
-    if (argc >= 2 && strcmp(argv[2], "-d")) {
-      i++;
-      initDebugger();
-      setDebuggerState(DBG_HALT);
-      cb = onNextTick;
+    int opt = 1; char *dbgCmdsFile = NULL;
+
+    while ((opt = getopt(argc, argv, "dD:hv")) != -1) {
+      switch (opt) {
+      case 'd':
+        initDbgState = DBG_HALT;
+        break;
+      case 'D':
+        dbgCmdsFile = optarg;
+        while (isspace(*dbgCmdsFile)) dbgCmdsFile++;
+        if (!fileExists(dbgCmdsFile)) {
+          fprintf(stderr, "***Debugger commands file not found %s.\n", dbgCmdsFile);
+          return 74;
+        }
+        initDbgState = DBG_HALT;
+        initDebuggerCmds = readFile(dbgCmdsFile);
+        setInitCommands(initDebuggerCmds);
+        break;
+      case 'h':
+        printUsage();
+        return 0;
+      case 'v':
+        printf("lox version %s", LOX_VERSION);
+        return 0;
+      default:
+        break;
+      }
     }
 
-    for (; i < argc; i++) {
+    for (; optind < argc; optind++) {
       initVM();
-      if (cb) vm.debugCB = cb;
-      if (!runFile(argv[i]))
+      setDebuggerState(initDbgState);
+      if (!runFile(argv[optind]))
         exit(70);
     }
 
   }
+
   freeVM();
+  FREE_ARRAY(char, (char*)initDebuggerCmds, strlen(initDebuggerCmds));
 
   return 0;
 }
