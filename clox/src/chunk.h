@@ -5,6 +5,7 @@
 #include "value.h"
 
 typedef enum {
+  // Any change here must also be changed in Computed goto labels
   OP_CONSTANT,
   OP_NIL,
   OP_TRUE,

@@ -25,7 +25,7 @@ static Obj* allocateObject(size_t size, ObjType type) {
   vm.infantObjects = object;
 
 #if DEBUG_LOG_GC_ALLOC
-  printf("%p allocate %zu for %s\n", (void*)object, size, typeofObject(object));
+  printf("%p allocate %zu for %s\n", (void*)object, size, typeOfObject(object));
 #endif
 
   return object;
@@ -229,42 +229,43 @@ const char *typeOfObject(Obj* object) {
 ObjString *objectToString(Value value) {
   ObjString *ret = NULL;
   char *buf = NULL;
+  int len;
   switch (OBJ_TYPE(value)) {
   case OBJ_BOUND_METHOD: {
-    int len = functionToString(&buf,
+    len = functionToString(&buf,
                 AS_BOUND_METHOD(value)->methods->function);
     ret = copyString(buf, len);
    } break;
   case OBJ_DICT: {
-    int len = dictToString(&buf, AS_DICT(value));
+    len = dictToString(&buf, AS_DICT(value));
     ret = copyString(buf, len);
    } break;
   case OBJ_CLASS: {
     ObjClass *cls = AS_CLASS(value);
-    int len = cls->name->length + 8;
+    len = cls->name->length + 8;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<class %s>", AS_CLASS(value)->name->chars);
     ret = copyString(buf, len);
   } break;
   case OBJ_CLOSURE: {
     //printClosure(AS_CLOSURE(value)); break;
-    int len = functionToString(&buf, AS_CLOSURE(value)->function);
+    len = functionToString(&buf, AS_CLOSURE(value)->function);
     ret = copyString(buf, len);
   } break;
   case OBJ_FUNCTION: {
-    int len = functionToString(&buf, AS_FUNCTION(value));
+    len = functionToString(&buf, AS_FUNCTION(value));
     ret = copyString(buf, len);
   } break;
   case OBJ_INSTANCE: {
     ObjInstance *instance = AS_INSTANCE(value);
-    int len = instance->klass->name->length + 11;
+    len = instance->klass->name->length + 11;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<%s instance>", instance->klass->name->chars);
     ret = copyString(buf, len);
   } break;
   case OBJ_NATIVE: {
     ObjNative *native = AS_NATIVE_OBJ(value);
-    int len = native->name->length + 12;
+    len = native->name->length + 12;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<native fn %s>", AS_NATIVE_OBJ(value)->name->chars);
     ret = copyString(buf, len);
@@ -276,6 +277,6 @@ ObjString *objectToString(Value value) {
   }
 
   if (buf != NULL)
-    FREE(char, buf);
+    FREE_ARRAY(char, buf, len);
   return ret;
 }

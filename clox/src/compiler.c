@@ -538,7 +538,7 @@ static void endScope() {
   }
 }
 
-// parse a expression
+// parses a expression
 static void expression() {
   parsePrecedence(PREC_ASSIGMENT);
 }

@@ -24,7 +24,7 @@ static bool disableGC = false;
 
 static void freeObject(Obj *object) {
 #if DEBUG_LOG_GC_FREE
-  printf("%p free type %s\n", (void*)object, typeofObject(object));
+  printf("%p free type %s\n", (void*)object, typeOfObject(object));
   if (object->type == OBJ_STRING)
     printf("string=%s flags=%x\n", ((ObjString*)object)->chars, object->flags);
 #endif
@@ -73,9 +73,8 @@ static void freeObject(Obj *object) {
 // for the GC
 static void blackenObject(Obj *object, ObjFlags flags) {
 #if DEBUG_LOG_GC_MARK
-  printf("%p blacken ", (void*)object);
-  printValue(OBJ_VAL(object));
-  printf("\n");
+  printf("%p blacken %s\n", (void*)object,
+         objectToString(OBJ_VAL(object))->chars);
 #endif
 
   switch (object->type) {
@@ -231,9 +230,10 @@ void markObject(Obj *object, ObjFlags flags) {
     return;
 
 #if DEBUG_LOG_GC_MARK
-  printf("%p mark ", (void*)object);
-  printValue(OBJ_VAL(object));
-  printf("  curFlags:%x setFlags:%x\n", object->flags, flags);
+  printf("%p mark %s curflags%x setFlags:%x\n",
+        (void*)object,
+        objectToString(OBJ_VAL(object))->chars,
+        object->flags, flags);
 #endif
 
   object->flags |= flags;
@@ -278,6 +278,7 @@ bool setGCenabled(bool enable) {
 }
 
 void infantGarbageCollect() {
+  disableGC = false;
 #ifdef DEBUG_LOG_GC
   printf("-- gc begin infant collect\n");
   size_t before = vm.infantBytesAllocated;
@@ -310,6 +311,8 @@ void infantGarbageCollect() {
         before - vm.infantBytesAllocated, before, vm.infantBytesAllocated,
         vm.infantNextGC);
 #endif
+
+  disableGC = true;
 }
 
 void olderGarbageCollect() {
