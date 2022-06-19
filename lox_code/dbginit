@@ -1,9 +1,10 @@
 # this is a debug init test
 
-break 8
-cond 0 x == "outer"
+#break 8
+#cond 0 x == "outer"
 break 59
-cond 1 c==3
+#cond 1 c==3
+#break 61
 watch x
 watch c
 #watch b + e

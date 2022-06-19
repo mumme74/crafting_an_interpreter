@@ -19,16 +19,11 @@ Debugger debugger;
 
 static CallFrame *frame = NULL,
                  *breakFrame = NULL;
-static int line = 0;
+static int line = 0,
+           listLineNr =-1;
 
 static void parseCommands(const char *buffer);
 static const char *initCommands = NULL;
-
-// used as temporary storage when printing variables
-typedef struct {
-  char *key;
-  Value value;
-} KeyVal;
 
 // prints the source around baseline,
 // window = how many rows before and after
@@ -129,10 +124,15 @@ static void checkStepOut() {
   }
 }
 
-static void checkBreakpoints() {
-  frame = &vm.frames[vm.frameCount -1];
+static void setCurrentFrame(int stackLevel) {
+  frame = &vm.frames[vm.frameCount -1 - stackLevel];
   line = frame->closure->function->chunk.lines[
     (int)(frame->ip - frame->closure->function->chunk.code)];
+  listLineNr = -1;
+}
+
+static void checkBreakpoints() {
+  setCurrentFrame(0);
 
   Module *module = getCurrentModule();
   Breakpoint *bp = debugger.breakpoints;
@@ -273,11 +273,18 @@ count      = [0-9]+ ;
 expression = [^\n]* ;
 */
 
+// each command in parser stores one of these
 typedef struct CmdTbl {
   const char *name;
   int nameLen;
   void (*parseFn)();
 } CmdTbl;
+
+// used as temporary storage when printing variables
+typedef struct {
+  char *key;
+  Value value;
+} KeyVal;
 
 // command string, moves when we parse
 static const char *cmd = NULL;
@@ -346,6 +353,22 @@ static int readRestOfRow(char **row) {
   return cmd - start;
 }
 
+// lookup and create a new KeyVal from locals
+static void getKeyVal(KeyVal **pkeyVal, Local *loc, int frmSlotIndex) {
+  (*pkeyVal)->key = ALLOCATE(char, loc->name.length);
+  memcpy((*pkeyVal)->key, loc->name.start, loc->name.length);
+  (*pkeyVal)->key[loc->name.length] = '\0';
+  (*pkeyVal)->value = frame->slots[frmSlotIndex];
+  (*pkeyVal)++;
+}
+
+// compare keys in KeyVal, used for sorting
+static int compareKeyVal(const void *a, const void *b) {
+  const KeyVal *aKeyVal = (const KeyVal*)a,
+               *bKeyVal = (const KeyVal*)b;
+  return strcmp(aKeyVal->key, bKeyVal->key);
+}
+
 static void nfo_brk() {
   printf("breakpoint info\n");
   Breakpoint *bp = debugger.breakpoints;
@@ -368,21 +391,17 @@ static void nfo_wtch() {
 }
 
 static void nfo_frm() {
-  printf("nfo_frm");
-}
+  printf("info frame\n");
+  int stackLvl = 0;
+  for (; stackLvl < vm.frameCount; ++ stackLvl)
+    if (&vm.frames[stackLvl] == frame) break;
 
-static void lookupKeyVal(KeyVal **pkeyVal, Local *loc, int index) {
-  (*pkeyVal)->key = ALLOCATE(char, loc->name.length);
-  memcpy((*pkeyVal)->key, loc->name.start, loc->name.length);
-  (*pkeyVal)->key[loc->name.length] = '\0';
-  (*pkeyVal)->value = frame->slots[index];
-  (*pkeyVal)++;
-}
-
-static int compareKeyVal(const void *a, const void *b) {
-  const KeyVal *aKeyVal = (const KeyVal*)a,
-               *bKeyVal = (const KeyVal*)b;
-  return strcmp(aKeyVal->key, bKeyVal->key);
+  printf("Stack level #%d frame '%s' in module '%s'\n at '%s'\n",
+    stackLvl,
+    frame->closure->function->name->chars,
+    frame->closure->function->chunk.module->name->chars,
+    frame->closure->function->chunk.module->path->chars
+  );
 }
 
 static void nfo_loc() {
@@ -397,7 +416,7 @@ static void nfo_loc() {
   for (int i = 0; i < compiler->localCount; ++i) {
     Local *loc = &compiler->locals[i];
     if (loc->name.length > 0)
-      lookupKeyVal(&pkeyVal, loc, i);
+      getKeyVal(&pkeyVal, loc, i);
   }
 
   // get upvalues
@@ -405,7 +424,7 @@ static void nfo_loc() {
     Upvalue *upvalue = &compiler->upvalues[i];
     Local *loc = &compiler->locals[upvalue->index];
     if (loc->name.length > 0)
-      lookupKeyVal(&pkeyVal, loc, i);
+      getKeyVal(&pkeyVal, loc, i);
   }
 
   // sort them
@@ -483,7 +502,7 @@ const HlpInfo hlpInfos[] = {
   {
     "backtrace", 9,
     "backtrace       Prints the stacktrace of current state.\n"
-    "backtrace nr    Select backtrace frame.\n"
+    "backtrace nr    Print backtrace, limit to nr.\n"
   },{
     "bt", 2,
     "bt              Shorthand for backtrace\n"
@@ -553,6 +572,15 @@ const HlpInfo hlpInfos[] = {
     "ignore", 6,
     "ignore nr hits  Ignore the first number of hits to breakpoint nr.\n"
   },{
+    "list", 4,
+    "list            Show next 10 lines of code\n"
+    "list -          Show previous 10 lines of code\n"
+    "list nr         Show 10 lines surrounding line at nr\n"
+  },{
+    "l", 1,
+    "l                Shorthand for list\n"
+    "                 See list for more details\n"
+  },{
     "next", 4,
     "next            Step forward one, step over function calls.\n"
   },{
@@ -602,13 +630,30 @@ static void help_() {
 }
 
 static void backtrace_() {
-  // FIXME implement
-  skipWhitespace();
-  if (!isAtEnd()) {
-    int nr = readInt();
-    (void)nr;
-  }
   printf("backtrace\n");
+  skipWhitespace();
+  int limit = vm.frameCount;
+  if (!isAtEnd()) {
+    limit -= readInt();
+    if (limit < 1) {
+      printf("Invalid limit\n");
+      return;
+    }
+  }
+
+  for (int i = 0; i < limit; ++i) {
+    CallFrame *frm = &vm.frames[vm.frameCount - 1 - i];
+    const char *fnName = frm->closure->function->name != NULL ?
+      frm->closure->function->name->chars : "<script>";
+    printf("#%d %s at %s at %s:%d\n",
+          i,
+          frm == frame ? "*" : " ",
+          fnName,
+          frm->closure->function->chunk.module->path->chars,
+          frm->closure->function->chunk.lines[
+            (int)(frm->ip - frm->closure->function->chunk.code)]
+    );
+  }
 }
 
 static void readLineAndPath(int *lnNr, const char **path) {
@@ -749,8 +794,15 @@ static void disable_() {
 }
 
 static void down_() {
-  // FIXME implement
-  printf("down\n");
+  int stackLvl = 0;
+  for (; stackLvl < vm.frameCount; ++stackLvl) {
+    if (&vm.frames[vm.frameCount-1 - stackLvl] == frame)
+      break;
+  }
+
+  stackLvl = stackLvl < vm.frameCount -1 ? stackLvl +1 : stackLvl;
+  printf("down to frame #%d\n", stackLvl);
+  setCurrentFrame(stackLvl);
 }
 
 static void echo_() {
@@ -776,18 +828,24 @@ static void enable_() {
 }
 
 static void frame_() {
-  // FIXME implement
+  int stackLvl = 0;
   skipWhitespace();
-  if (isAtEnd()) {
+  if (!isAtEnd()) {
     if (!isdigit(*cmd)) {
       printf("Expect nr after frame\n");
       return;
     }
-    int nr = readInt();
-    printf("Select frame %d", nr);
+    stackLvl = readInt();
+  }
+
+  int frameIdx = vm.frameCount -1 - stackLvl;
+  if (frameIdx < 0){
+    printf("Invalid frame nr.\n");
     return;
   }
-  printf("Select current frame");
+
+  printf("Select frame %d\n", stackLvl);
+  setCurrentFrame(stackLvl);
 }
 
 static void finish_() {
@@ -817,6 +875,22 @@ static void ignore_() {
   }
 }
 
+static void list_() {
+  skipWhitespace();
+  int lineNr = listLineNr == -1 ? line +5 : listLineNr + 10;
+  listLineNr = lineNr;
+  if (!isAtEnd()) {
+    if (*cmd == '-') {
+      lineNr = lineNr -20 > 1 ? lineNr -20 : 1;
+      listLineNr = lineNr;
+      cmd++;
+    }
+    else if (isdigit(*cmd))
+      listLineNr = lineNr = readInt();
+  }
+  printSource(lineNr, 5);
+}
+
 static void next_() {
   breakFrame = frame;
   debugger.state = DBG_NEXT;
@@ -824,7 +898,6 @@ static void next_() {
 }
 
 static void print_() {
-  // FIXME implement
   skipWhitespace();
   if (isAtEnd()) {
     printf("Expect a expression as param to print.\n");
@@ -850,8 +923,15 @@ static void step_() {
 }
 
 static void up_() {
-  // FIXME implement
-  printf("up\n");
+  int stackLvl = 0;
+  for (; stackLvl < vm.frameCount; ++stackLvl) {
+    if (&vm.frames[vm.frameCount-1 - stackLvl] == frame)
+      break;
+  }
+
+  stackLvl = stackLvl > 0 ? stackLvl -1 : 0;
+  printf("up to frame #%d\n", stackLvl);
+  setCurrentFrame(stackLvl);
 }
 
 static void watch_() {
@@ -890,6 +970,8 @@ const CmdTbl cmds[] = {
   { "help", 4, help_ },
   { "info", 4, info_},
   { "ignore", 6, ignore_},
+  { "list", 4, list_},
+  { "l", 1, list_},
   { "next", 4, next_},
   { "n", 1, next_},
   { "print", 5, print_},
