@@ -1362,6 +1362,34 @@ ObjFunction *compileEvalExpr(const char *source, Chunk *parentChunk) {
   return function;
 }
 
+Local *getUpvalueByIndex(ObjFunction **function, int *index) {
+  Compiler *comp = (*function)->chunk.compiler;
+  while (comp && !comp->upvalues[*index].isLocal) {
+    *index = comp->upvalues[*index].index;
+    comp = comp->enclosing;
+    *function = comp->function;
+  }
+  if (!comp || !comp->enclosing) return NULL;
+
+  *index = comp->upvalues[*index].index;
+  return &comp->enclosing->locals[*index];
+}
+
+Local *getUpvalueFromName(ObjFunction **function,
+                          const char *name, int *index)
+{
+  int nameLen = strlen(name);
+  for (int i = 0; i < (*function)->upvalueCount; ++i) {
+    *index = i;
+    Local *loc = getUpvalueByIndex(function, index);
+    if (loc->name.length == nameLen &&
+        memcmp(loc->name.start, name, nameLen) == 0)
+        return loc;
+  }
+
+  return NULL;
+}
+
 void markCompilerRoots(ObjFlags flags) {
   Compiler *compiler = current;
   while (compiler != NULL) {

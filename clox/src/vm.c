@@ -257,6 +257,9 @@ static InterpretResult run() {
     push(valueType(a op b)); \
   } while(false)
 
+# define DBG_NEXT \
+  if (debugger.state > DBG_RUN) onNextTick()
+
 #ifdef COMPUTED_GOTO
 # define OP(opcode)  &&lbl_##opcode
 # define CASE(inst)   lbl_##inst:
@@ -277,7 +280,8 @@ static InterpretResult run() {
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
-  if (debugger.state > DBG_RUN) onNextTick(); \
+  /* for single step */ \
+  if (debugger.state == DBG_STEP) onNextTick(); \
   goto *labels[instruction = READ_BYTE()]
 # define SWITCH(expr) goto *labels[instruction = READ_BYTE()];
 
@@ -285,8 +289,8 @@ static InterpretResult run() {
 
 # define CASE(inst)        case inst:
 # define BREAK             \
-  if (debugger.state > DBG_RUN) \
-    onNextTick(); \
+  /* for single step */ \
+  if (debugger.state == DBG_STEP) onNextTick(); \
   break
 # define SWITCH(expr)   switch(expr)
 #endif
@@ -360,10 +364,12 @@ static InterpretResult run() {
       ObjString *name = READ_STRING();
       tableSet(&vm.globals, name, peek(0));
       pop();
+      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_LOCAL) {
       uint8_t slot = READ_BYTE();
       frame->slots[slot] = peek(0);
+      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_GLOBAL) {
       ObjString *name = READ_STRING();
@@ -372,10 +378,12 @@ static InterpretResult run() {
         runtimeError("Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
+      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_UPVALUE) {
       uint8_t slot = READ_BYTE();
       *frame->closure->upvalues[slot]->location = peek(0);
+      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_PROPERTY) {
       Table *tbl = NULL;
@@ -393,26 +401,29 @@ static InterpretResult run() {
       Value value = pop();
       pop();
       push(value);
+      DBG_NEXT;
     } BREAK;
     CASE(OP_EQUAL) {
       Value b = pop(), a = pop();
       push(BOOL_VAL(valuesEqual(a, b)));
+      DBG_NEXT;
     } BREAK;
-    CASE(OP_GREATER)     BINARY_OP(BOOL_VAL, >); BREAK;
-    CASE(OP_LESS)        BINARY_OP(BOOL_VAL, <); BREAK;
+    CASE(OP_GREATER)     BINARY_OP(BOOL_VAL, >); DBG_NEXT; BREAK;
+    CASE(OP_LESS)        BINARY_OP(BOOL_VAL, <); DBG_NEXT; BREAK;
     CASE(OP_ADD) {
       if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
         concatenate();
       } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
-        BINARY_OP(NUMBER_VAL, +); BREAK;
+        BINARY_OP(NUMBER_VAL, +);
       } else {
         runtimeError("Operands must be two numbers or two strings.");
         return INTERPRET_RUNTIME_ERROR;
       }
+      DBG_NEXT;
     } BREAK;
-    CASE(OP_SUBTRACT)    BINARY_OP(NUMBER_VAL, -); BREAK;
-    CASE(OP_MULTIPLY)    BINARY_OP(NUMBER_VAL, *); BREAK;
-    CASE(OP_DIVIDE)      BINARY_OP(NUMBER_VAL, /); BREAK;
+    CASE(OP_SUBTRACT)    BINARY_OP(NUMBER_VAL, -); DBG_NEXT; BREAK;
+    CASE(OP_MULTIPLY)    BINARY_OP(NUMBER_VAL, *); DBG_NEXT; BREAK;
+    CASE(OP_DIVIDE)      BINARY_OP(NUMBER_VAL, /); DBG_NEXT; BREAK;
     CASE(OP_NOT)
       push(BOOL_VAL(isFalsey(pop()))); BREAK;
     CASE(OP_NEGATE)
@@ -427,20 +438,23 @@ static InterpretResult run() {
       // dont use printf as a \0 in string should NOT terminate output
       const char *c = vlu->chars, *end = c + vlu->length;
       while(c < end) putc(*c++, stdout);
+      DBG_NEXT;
     } BREAK;
     CASE(OP_JUMP) {
       uint16_t offset = READ_SHORT();
       frame->ip += offset;
+      DBG_NEXT;
     } BREAK;
     CASE(OP_JUMP_IF_FALSE) {
       uint16_t offset = READ_SHORT();
       if (isFalsey(peek(0)))
         frame->ip += offset;
+      DBG_NEXT;
     } BREAK;
     CASE(OP_LOOP) {
       uint16_t offset = READ_SHORT();
       frame->ip -= offset;
-
+      DBG_NEXT;
     } BREAK;
     CASE(OP_CALL) {
       int argCount = READ_BYTE();
@@ -494,6 +508,7 @@ static InterpretResult run() {
     CASE(OP_RETURN) {
       Value result = pop();
       closeUpvalues(frame->slots);
+      DBG_NEXT;
       vm.frameCount--;
       if (vm.frameCount == 0) {
         // exit interpreter
@@ -511,6 +526,7 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_CLASS)
       push(OBJ_VAL(OBJ_CAST(newClass(READ_STRING()))));
+      DBG_NEXT;
       BREAK;
     CASE(OP_INHERIT) {
       Value superClass = peek(1);
@@ -523,17 +539,21 @@ static InterpretResult run() {
       tableAddAll(&AS_CLASS(superClass)->methods,
                   &subClass->methods);
       pop(); // subclass;
+      DBG_NEXT;
     } BREAK;
     CASE(OP_METHOD)
       defineMethod(READ_STRING());
+      DBG_NEXT;
       BREAK;
     CASE(OP_DICT)
       push(OBJ_VAL(OBJ_CAST(newDict())));
+      DBG_NEXT;
       BREAK;
     CASE(OP_DICT_FIELD) {
       Table *fields = &AS_DICT(peek(1))->fields;
       tableSet(fields, READ_STRING(), peek(0));
       pop();
+      DBG_NEXT;
     } BREAK;
     }
   }
@@ -614,7 +634,7 @@ InterpretResult vm_evalBuild(ObjClosure **closure, const char *source) {
   push(OBJ_VAL(OBJ_CAST(*closure)));
   for(int i = 0; i < function->upvalueCount; ++i) {
     int index = function->chunk.compiler->upvalues[i].index;
-    if (function->chunk.compiler->upvalues[i].isLocal) {
+    if (function->chunk.compiler->upvalues[index].isLocal) {
       (*closure)->upvalues[i] = captureUpvalue(frame->slots + index);
     } else {
       (*closure)->upvalues[i] = frame->closure->upvalues[index];;

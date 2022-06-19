@@ -44,12 +44,21 @@ typedef struct Compiler {
       scopeDepth;
 } Compiler;
 
-
 // compiles source, returns containing function
 ObjFunction *compile(const char *source, Module *module,
                      FunctionType fnType);
 // create a compileEval
 ObjFunction *compileEvalExpr(const char *source, Chunk *parentChunk);
+
+// looks up upvalue in parent function based on upvalue index
+// function get set to the function containing upvalueIndex as a local
+// index is the upvalue index in function, gets set to local index in containg function
+Local *getUpvalueByIndex(ObjFunction **function, int *index);
+
+// looks up upvalue in parent function based variable name
+// function get set to the function containing upvalueIndex as a local
+// index is the upvalue index in function, gets set to local index in containg function
+Local *getUpvalueFromName(ObjFunction **function, const char *name, int *index);
 
 // runned by GC during mark stage, before sweep
 void markCompilerRoots(ObjFlags flags);

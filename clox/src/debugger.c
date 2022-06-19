@@ -38,10 +38,10 @@ static void fprintOut(FILE *stream, const char *frmt, ...) {
   va_end(args);
 }
 
-static void fputsOut(const char *string, FILE *stream) {
+/*static void fputsOut(const char *string, FILE *stream) {
   if (!silentMode)
     fputs(string, stream);
-}
+}*/
 
 static void fputcOut(const char c, FILE *stream) {
   if (!silentMode)
@@ -120,48 +120,24 @@ static void processEvents() {
   }
 }
 
-static void checkNext() {
-  static const OpCode haltOn[] = {
-    OP_DEFINE_GLOBAL, OP_SET_GLOBAL, OP_SET_LOCAL,
-    OP_SET_UPVALUE, OP_SET_PROPERTY, OP_EQUAL,
-    OP_LESS, OP_ADD, OP_SUBTRACT, OP_DIVIDE,
-    OP_PRINT, OP_JUMP, OP_JUMP_IF_FALSE, OP_LOOP,
-    OP_INVOKE, OP_SUPER_INVOKE, OP_CLOSE_UPVALUE,
-    OP_RETURN, OP_CLASS, OP_METHOD, OP_DICT,
-    OP_DICT_FIELD
-  };
-
-
-  frame = &vm.frames[vm.frameCount -1];
-
-  for (int i = 0; i < sizeof(haltOn) / sizeof(haltOn[0]); ++i) {
-    if (haltOn[i] == *frame->ip) {
-      line = frame->closure->function->chunk.lines[
-        (int)(frame->ip - frame->closure->function->chunk.code)];
-      debugger.isHalted = true;
-      printSource(line, 0);
-      processEvents();
-    }
-  }
-}
-
-static void checkStepOut() {
-  frame = &vm.frames[vm.frameCount -1];
-  if (*frame->ip == OP_RETURN) {
-    line = frame->closure->function->chunk.lines[
-      (int)(frame->ip - frame->closure->function->chunk.code)];
-    debugger.isHalted = true;
-    printSource(line, 0);
-    processEvents();
-  }
-}
-
 static void setCurrentFrame(int stackLevel) {
   frame = &vm.frames[vm.frameCount -1 - stackLevel];
   line = frame->closure->function->chunk.lines[
     (int)(frame->ip - frame->closure->function->chunk.code)];
   listLineNr = -1;
 }
+
+static void checkStepOut() {
+  frame = &vm.frames[vm.frameCount -1];
+  if (*(frame->ip-1) == OP_RETURN) {
+    setCurrentFrame(0);
+    debugger.isHalted = true;
+    debugger.state = DBG_NEXT;
+    printSource(line, 0);
+    processEvents();
+  }
+}
+
 
 static void checkBreakpoints() {
   setCurrentFrame(0);
@@ -313,7 +289,7 @@ typedef struct CmdTbl {
   void (*parseFn)();
 } CmdTbl;
 
-// used as temporary storage when printing variables
+// key-value pair, must be deallocated manually
 typedef struct {
   char *key;
   Value value;
@@ -388,11 +364,12 @@ static int readRestOfRow(char **row) {
 }
 
 // lookup and create a new KeyVal from locals
-static void getKeyVal(KeyVal **pkeyVal, Local *loc, int frmSlotIndex) {
+static void getKeyVal(KeyVal **pkeyVal, Local *loc, Value *value)
+{
   (*pkeyVal)->key = ALLOCATE(char, loc->name.length);
   memcpy((*pkeyVal)->key, loc->name.start, loc->name.length);
   (*pkeyVal)->key[loc->name.length] = '\0';
-  (*pkeyVal)->value = frame->slots[frmSlotIndex];
+  (*pkeyVal)->value = *value;
   (*pkeyVal)++;
 }
 
@@ -443,24 +420,25 @@ static void nfo_frm() {
 static void nfo_loc() {
   fprintOut(outstream, "info locals\n");
   Compiler *compiler = frame->closure->function->chunk.compiler;
-  KeyVal *keyValues =
-    ALLOCATE(KeyVal, compiler->localCount +
-                     frame->closure->upvalueCount);
+  KeyVal *keyValues = ALLOCATE(KeyVal, compiler->localCount +
+                               frame->closure->upvalueCount);
   KeyVal *pkeyVal = keyValues;
 
   // get locals
   for (int i = 0; i < compiler->localCount; ++i) {
     Local *loc = &compiler->locals[i];
     if (loc->name.length > 0)
-      getKeyVal(&pkeyVal, loc, i);
+      getKeyVal(&pkeyVal, loc, &frame->slots[i]);
   }
 
   // get upvalues
-  for (int i = 0; i < compiler->function->upvalueCount; ++i) {
-    Upvalue *upvalue = &compiler->upvalues[i];
-    Local *loc = &compiler->locals[upvalue->index];
+  for (int i = 0; i < frame->closure->upvalueCount; ++i) {
+    int index = i;
+    ObjFunction *func = compiler->function;
+    Local *loc = getUpvalueByIndex(&func, &index);
     if (loc->name.length > 0)
-      getKeyVal(&pkeyVal, loc, i);
+      getKeyVal(&pkeyVal, loc,
+                frame->closure->upvalues[i]->location);
   }
 
   // sort them
@@ -1369,7 +1347,7 @@ void onNextTick() {
   case DBG_ARMED:
     return checkBreakpoints();
   case DBG_NEXT:
-    return checkNext();
+    //return checkNext();
   case DBG_STEP: // fall through
   case DBG_HALT:
     debugger.isHalted = true;
