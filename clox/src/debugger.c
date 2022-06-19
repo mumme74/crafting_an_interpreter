@@ -394,13 +394,15 @@ static void nfo_frm() {
   printf("info frame\n");
   int stackLvl = 0;
   for (; stackLvl < vm.frameCount; ++ stackLvl)
-    if (&vm.frames[stackLvl] == frame) break;
+    if (&vm.frames[vm.frameCount - 1 - stackLvl] == frame) break;
 
-  printf("Stack level #%d frame '%s' in module '%s'\n at '%s'\n",
+  printf("Stack level #%d frame '%s' in module '%s'\n"
+         " at '%s'\n at line:%d\n",
     stackLvl,
     frame->closure->function->name->chars,
     frame->closure->function->chunk.module->name->chars,
-    frame->closure->function->chunk.module->path->chars
+    frame->closure->function->chunk.module->path->chars,
+    line
   );
 }
 
@@ -995,8 +997,8 @@ next_cmd:
       if (memcmp(cmd, cmds[i].name, cmds[i].nameLen) == 0) {
         cmd += cmds[i].nameLen;
         cmds[i].parseFn();
-        while (*cmd == '\n')
-          cmd++; // eat up closing '\n'
+        while(*cmd != '\n' && *cmd != '\0') cmd++; // trim unwanted stuff
+        while (*cmd == '\n') cmd++; // eat up closing '\n'
         goto next_cmd;
       }
     }
