@@ -14,7 +14,8 @@ program        -> statement* EOF ;
 declaration    -> classDecl | funDecl | varDecl | statement ;
 classDecl      -> "class" IDENTIFIER "{" function* "}" ;
 funDecl        -> "fun" function ;
-varDecl        -> "var" IDENTIFIER ( "=" expression )? ";" ;
+varDecl        -> "var" varDeclPart ( "," varDeclPart )? ";" ;
+varDeclPart    -> IDENTIFIER ( "=" expression )? ;
 statement      -> exprStmt
                 | forStmt
                 | ifStmt
@@ -633,10 +634,15 @@ static void varDeclaration() {
     emitByte(OP_NIL);
   }
 
-  consume(TOKEN_SEMICOLON,
+  if (check(TOKEN_COMMA)) {
+    advance();
+    defineVariable(global);
+    varDeclaration();
+  } else {
+    consume(TOKEN_SEMICOLON,
           "Expect ';' after variable declaration.");
-
-  defineVariable(global);
+    defineVariable(global);
+  }
 }
 
 // expresions starts here
