@@ -61,10 +61,6 @@ static void defineNative(const char *name, NativeFn function, int arity) {
   pop();
 }
 
-static Value peek(int distance) {
-  return vm.stackTop[-1 - distance];
-}
-
 static bool call(ObjClosure *closure, int argCount) {
   if (argCount != closure->function->arity) {
     runtimeError("Expected %d arguments but got %d.",
@@ -258,7 +254,7 @@ static InterpretResult run() {
   } while(false)
 
 # define DBG_NEXT \
-  if (debugger.state > DBG_RUN) onNextTick()
+  if (debugger.state > DBG_RUN) onNextTick(instruction)
 
 #ifdef COMPUTED_GOTO
 # define OP(opcode)  &&lbl_##opcode
@@ -281,7 +277,7 @@ static InterpretResult run() {
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
   /* for single step */ \
-  if (debugger.state == DBG_STEP) onNextTick(); \
+  if (debugger.state == DBG_STEP) onNextTick(instruction); \
   goto *labels[instruction = READ_BYTE()]
 # define SWITCH(expr) goto *labels[instruction = READ_BYTE()];
 
@@ -290,7 +286,7 @@ static InterpretResult run() {
 # define CASE(inst)        case inst:
 # define BREAK             \
   /* for single step */ \
-  if (debugger.state == DBG_STEP) onNextTick(); \
+  if (debugger.state == DBG_STEP) onNextTick(instruction); \
   break
 # define SWITCH(expr)   switch(expr)
 #endif
@@ -508,7 +504,6 @@ static InterpretResult run() {
     CASE(OP_RETURN) {
       Value result = pop();
       closeUpvalues(frame->slots);
-      DBG_NEXT;
       vm.frameCount--;
       if (vm.frameCount == 0) {
         // exit interpreter
@@ -518,6 +513,7 @@ static InterpretResult run() {
 
       vm.stackTop = frame->slots;
       push(result);
+      DBG_NEXT;
       frame = &vm.frames[vm.frameCount -1];
     } BREAK;
     CASE(OP_EVAL_EXIT) {
@@ -755,4 +751,8 @@ Value pop() {
   assert(vm.stackTop >= vm.stack && "Moved stackpointer below zero.");
   vm.stackTop--;
   return *vm.stackTop;
+}
+
+Value peek(int distance) {
+  return vm.stackTop[-1 - distance];
 }

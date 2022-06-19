@@ -56,7 +56,9 @@ fun outer3() {
   fun middle3() {
     var c = 3, d = 4, e = "jej", f = outer2;
     fun inner3() {
-      print c + d + a + b;
+      var tmp = c + d + a + b;
+      print tmp;
+      return tmp;
     }
     inner3();
   }

@@ -89,4 +89,7 @@ void push(Value value);
 // pop a value from stack
 Value pop();
 
+// peek into stack
+Value peek(int distance);
+
 #endif // CLOX_VM_H

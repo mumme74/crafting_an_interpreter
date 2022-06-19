@@ -96,7 +96,9 @@ static void runBreakpointCmds(Breakpoint *bp) {
   }
 }
 
-static void processEvents() {
+static void processEvents(OpCode opCode) {
+  if (opCode == OP_RETURN && !IS_NIL(peek(0)))
+    fprintOut(outstream, "returns: %s\n", valueToString(peek(0))->chars);
 
   printWatchpoints();
   static char *prev = NULL;
@@ -127,19 +129,19 @@ static void setCurrentFrame(int stackLevel) {
   listLineNr = -1;
 }
 
-static void checkStepOut() {
-  frame = &vm.frames[vm.frameCount -1];
-  if (*(frame->ip-1) == OP_RETURN) {
+static void checkStepOut(OpCode opCode) {
+  if (opCode == OP_RETURN) {
+    frame = &vm.frames[vm.frameCount -1];
     setCurrentFrame(0);
     debugger.isHalted = true;
     debugger.state = DBG_NEXT;
     printSource(line, 0);
-    processEvents();
+    processEvents(opCode);
   }
 }
 
 
-static void checkBreakpoints() {
+static void checkBreakpoints(OpCode opCode) {
   setCurrentFrame(0);
 
   Module *module = getCurrentModule();
@@ -178,7 +180,7 @@ afterEvalCondtion:
                module->path->chars);
         printSource(line, 2);
         runBreakpointCmds(bp);
-        processEvents();
+        processEvents(opCode);
       }
     }
   }
@@ -1339,19 +1341,19 @@ void markDebuggerRoots(ObjFlags flags) {
   }
 }
 
-void onNextTick() {
+void onNextTick(OpCode opCode) {
   switch (debugger.state) {
   case DBG_RUN: return;
   case DBG_STEP_OUT:
-    return checkStepOut();
+    return checkStepOut(opCode);
   case DBG_ARMED:
-    return checkBreakpoints();
+    return checkBreakpoints(opCode);
   case DBG_NEXT:
     //return checkNext();
   case DBG_STEP: // fall through
   case DBG_HALT:
     debugger.isHalted = true;
-    return processEvents();
+    return processEvents(opCode);
   case DBG_STOP: break;
   }
 }
