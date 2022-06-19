@@ -11,6 +11,7 @@
 #include "object.h"
 #include "memory.h"
 #include "module.h"
+#include "native.h"
 
 
 VM vm; // global
@@ -18,10 +19,6 @@ VM vm; // global
 // --------------------------------------------------------------
 
 static bool failOnRuntimeErr = false;
-
-static Value clockNative(int argCount, Value *args) {
-  return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
-}
 
 static void resetStack() {
   vm.stackTop = vm.stack;
@@ -50,15 +47,6 @@ static void runtimeError(const char *format, ...) {
   }
 
   resetStack();
-}
-
-static void defineNative(const char *name, NativeFn function, int arity) {
-  ObjString *fnname = copyString(name, (int)strlen(name));
-  push(OBJ_VAL(OBJ_CAST(fnname)));
-  push(OBJ_VAL(OBJ_CAST(newNative(function, fnname, arity))));
-  tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
-  pop();
-  pop();
 }
 
 static bool call(ObjClosure *closure, int argCount) {
@@ -108,7 +96,7 @@ static bool callValue(Value callee, int argCount) {
       push(result);
       return true;
     }
-    case OBJ_DICT:
+    case OBJ_DICT: case OBJ_ARRAY:
     case OBJ_STRING: case OBJ_UPVALUE:
     case OBJ_INSTANCE: case OBJ_FUNCTION:
      break; // non callable object type
@@ -263,16 +251,16 @@ static InterpretResult run() {
   void* labels[] = {
     OP(OP_CONSTANT), OP(OP_NIL), OP(OP_TRUE), OP(OP_FALSE),
     OP(OP_POP), OP(OP_GET_LOCAL), OP(OP_GET_GLOBAL),
-    OP(OP_GET_UPVALUE), OP(OP_GET_PROPERTY), OP(OP_GET_SUPER),
-    OP(OP_DEFINE_GLOBAL), OP(OP_SET_LOCAL), OP(OP_SET_GLOBAL),
-    OP(OP_SET_UPVALUE), OP(OP_SET_PROPERTY), OP(OP_EQUAL),
-    OP(OP_GREATER), OP(OP_LESS), OP(OP_ADD), OP(OP_SUBTRACT),
-    OP(OP_MULTIPLY), OP(OP_DIVIDE), OP(OP_NOT), OP(OP_NEGATE),
-    OP(OP_PRINT), OP(OP_JUMP), OP(OP_JUMP_IF_FALSE), OP(OP_LOOP),
-    OP(OP_CALL), OP(OP_INVOKE), OP(OP_SUPER_INVOKE), OP(OP_CLOSURE),
-    OP(OP_CLOSE_UPVALUE), OP(OP_RETURN), OP(OP_EVAL_EXIT),
-    OP(OP_CLASS), OP(OP_INHERIT), OP(OP_METHOD), OP(OP_DICT),
-    OP(OP_DICT_FIELD)
+    OP(OP_GET_UPVALUE), OP(OP_GET_PROPERTY), OP(OP_GET_SUBSCRIPT),
+    OP(OP_GET_SUPER), OP(OP_DEFINE_GLOBAL), OP(OP_SET_LOCAL),
+    OP(OP_SET_GLOBAL), OP(OP_SET_UPVALUE), OP(OP_SET_PROPERTY),
+    OP(OP_SET_SUBSCRIPT), OP(OP_EQUAL), OP(OP_GREATER), OP(OP_LESS),
+    OP(OP_ADD), OP(OP_SUBTRACT), OP(OP_MULTIPLY), OP(OP_DIVIDE),
+    OP(OP_NOT), OP(OP_NEGATE), OP(OP_PRINT), OP(OP_JUMP),
+    OP(OP_JUMP_IF_FALSE), OP(OP_LOOP), OP(OP_CALL), OP(OP_INVOKE),
+    OP(OP_SUPER_INVOKE), OP(OP_CLOSURE), OP(OP_CLOSE_UPVALUE),
+    OP(OP_RETURN), OP(OP_EVAL_EXIT), OP(OP_CLASS), OP(OP_INHERIT),
+    OP(OP_METHOD), OP(OP_DICT), OP(OP_DICT_FIELD)
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
@@ -559,14 +547,6 @@ static InterpretResult run() {
 #undef READ_STRING
 #undef BINARY_OP
 #undef CASE
-}
-
-
-static void defineBuiltins() {
-  // all builtin functions
-  defineNative("clock", clockNative, 0);
-  /*defineNative("str", toString, 1);
-  defineNative("num", toNumber, 1);*/
 }
 
 // -------------------------------------------------------

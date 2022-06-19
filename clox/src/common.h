@@ -13,7 +13,7 @@
 #define DEBUG_LOG_GC_ALLOC 0
 
 #define DEBUG_TRACE_EXECUTION
-//#define DEBUG_PRINT_CODE
+#define DEBUG_PRINT_CODE
 
 
 //#define NAN_BOXING
