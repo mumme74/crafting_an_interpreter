@@ -105,7 +105,7 @@ bool valuesEqual(Value a, Value b);
 // checks if value is false
 bool isFalsey(Value value);
 // returns type of value to string
-const char *typeofValue(Value value);
+const char *typeOfValue(Value value);
 // returns value to string
 ObjString *valueToString(Value value);
 

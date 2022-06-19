@@ -24,6 +24,12 @@ static int line = 0;
 static void parseCommands(const char *buffer);
 static const char *initCommands = NULL;
 
+// used as temporary storage when printing variables
+typedef struct {
+  char *key;
+  Value value;
+} KeyVal;
+
 // prints the source around baseline,
 // window = how many rows before and after
 static void printSource(int baseline, int window) {
@@ -49,11 +55,6 @@ static void printSource(int baseline, int window) {
     src++;
   }
   putc('\n', stdout);
-}
-
-// print identifier value
-static void printIdent(const char *ident) {
-  printf("printing variable: %s\n", ident);
 }
 
 static void printWatchpoints() {
@@ -135,7 +136,7 @@ static void checkBreakpoints() {
 
   Module *module = getCurrentModule();
   Breakpoint *bp = debugger.breakpoints;
-  for (int nr = 0; bp != NULL; ++nr, bp = bp->next) {
+  for (int nr = 1; bp != NULL; ++nr, bp = bp->next) {
     if (bp->module == module &&
         bp->line == line)
     {
@@ -346,23 +347,109 @@ static int readRestOfRow(char **row) {
 }
 
 static void nfo_brk() {
-  printf("nfo_brk");
+  printf("breakpoint info\n");
+  Breakpoint *bp = debugger.breakpoints;
+  for (int nr = 1; bp != NULL; bp = bp->next, nr++) {
+    printf("[%d] breakpoint at %s:%d\n", nr,
+           bp->module->path->chars, bp->line);
+    printf("      hits:%d ignoreCount:%d enabled:%d\n",
+           bp->hits, bp->ignoreCount, bp->enabled);
+    if (bp->condition != NULL)
+      printf("      condition:%s\n", bp->condition);
+  }
 }
 
 static void nfo_wtch() {
-  printf("nfo_wtch");
+  printf("watchpoint info\n");
+  Watchpoint *wp = debugger.watchpoints;
+  for (int nr = 1; wp != NULL; wp = wp->next, nr++) {
+    printf("[%d] watchpoint expr:%s\n", nr, wp->expr);
+  }
 }
 
 static void nfo_frm() {
   printf("nfo_frm");
 }
 
+static void lookupKeyVal(KeyVal **pkeyVal, Local *loc, int index) {
+  (*pkeyVal)->key = ALLOCATE(char, loc->name.length);
+  memcpy((*pkeyVal)->key, loc->name.start, loc->name.length);
+  (*pkeyVal)->key[loc->name.length] = '\0';
+  (*pkeyVal)->value = frame->slots[index];
+  (*pkeyVal)++;
+}
+
+static int compareKeyVal(const void *a, const void *b) {
+  const KeyVal *aKeyVal = (const KeyVal*)a,
+               *bKeyVal = (const KeyVal*)b;
+  return strcmp(aKeyVal->key, bKeyVal->key);
+}
+
 static void nfo_loc() {
-  printf("nfo_loc");
+  printf("info locals\n");
+  Compiler *compiler = frame->closure->function->chunk.compiler;
+  KeyVal *keyValues =
+    ALLOCATE(KeyVal, compiler->localCount +
+                     frame->closure->upvalueCount);
+  KeyVal *pkeyVal = keyValues;
+
+  // get locals
+  for (int i = 0; i < compiler->localCount; ++i) {
+    Local *loc = &compiler->locals[i];
+    if (loc->name.length > 0)
+      lookupKeyVal(&pkeyVal, loc, i);
+  }
+
+  // get upvalues
+  for (int i = 0; i < compiler->function->upvalueCount; ++i) {
+    Upvalue *upvalue = &compiler->upvalues[i];
+    Local *loc = &compiler->locals[upvalue->index];
+    if (loc->name.length > 0)
+      lookupKeyVal(&pkeyVal, loc, i);
+  }
+
+  // sort them
+  qsort(keyValues, pkeyVal - keyValues,
+        sizeof(KeyVal), compareKeyVal);
+
+  // output values
+  for (int i = 0; i < pkeyVal - keyValues; ++i) {
+    printf("[%s] %12s = %s\n",
+           typeOfValue(keyValues[i].value),
+           keyValues[i].key,
+           valueToString(keyValues[i].value)->chars);
+    FREE_ARRAY(char, keyValues[i].key, strlen(keyValues[i].key));
+  }
+
+  FREE_ARRAY(KeyVal, keyValues, compiler->localCount);
 }
 
 static void nfo_gbl() {
-  printf("nfo_gbl");
+  printf("info globals\n");
+
+  KeyVal *keyVal = ALLOCATE(KeyVal, vm.globals.count);
+  ValueArray globalKeys = tableKeys(&vm.globals);
+
+  // get globals
+  for (int i = 0; i < globalKeys.count; ++i) {
+    keyVal[i].key = AS_CSTRING(globalKeys.values[i]);
+    tableGet(&vm.globals, AS_STRING(globalKeys.values[i]), &keyVal[i].value);
+  }
+
+  // sort them alpabetically
+  qsort(keyVal, globalKeys.count,
+        sizeof(KeyVal), compareKeyVal);
+
+  // print globals
+  for (int i = 0; i < globalKeys.count; ++i) {
+    printf("[%-12s] %s:%s\n",
+           typeOfValue(keyVal[i].value),
+           keyVal[i].key,
+           valueToString(keyVal[i].value)->chars);
+  }
+
+  FREE_ARRAY(KeyVal, keyVal, vm.globals.count);
+  freeValueArray(&globalKeys);
 }
 
 CmdTbl infoCmds[] = {
@@ -944,13 +1031,10 @@ Breakpoint *getBreakpointByIndex(int brkpntNr) {
 }
 
 int getBreakpointIndex(Breakpoint *breakpoint) {
-  int idx = 0;
   Breakpoint *bp = debugger.breakpoints;
-  while (bp != NULL) {
+  for (int nr = 1; bp != NULL; bp = bp->next, nr++) {
     if (bp == breakpoint)
-      return idx;
-    idx++;
-    bp = bp->next;
+      return nr;
   }
   return -1;
 }
