@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -21,9 +22,31 @@ static CallFrame *frame = NULL,
                  *breakFrame = NULL;
 static int line = 0,
            listLineNr =-1;
+static const char *initCommands = NULL;
+static bool silentMode = false;
+static FILE *outstream = NULL,
+            *errstream = NULL,
+            *instream  = NULL;
 
 static void parseCommands(const char *buffer);
-static const char *initCommands = NULL;
+
+static void fprintOut(FILE *stream, const char *frmt, ...) {
+  va_list args;
+  va_start(args, frmt);
+  if (!silentMode)
+    vfprintf(stream, frmt, args);
+  va_end(args);
+}
+
+static void fputsOut(const char *string, FILE *stream) {
+  if (!silentMode)
+    fputs(string, stream);
+}
+
+static void fputcOut(const char c, FILE *stream) {
+  if (!silentMode)
+    fputc(c, stream);
+}
 
 // prints the source around baseline,
 // window = how many rows before and after
@@ -36,20 +59,20 @@ static void printSource(int baseline, int window) {
 
   Module *module = getCurrentModule();
   const char *src = module->source;
-  putc('\n', stdout);
+  fputcOut('\n', outstream);
 
   while (*src != '\0') {
     if (*src == '\n') ++lineCnt;
     if (lineCnt >= fromLine && lineCnt <= toLine) {
       if (*src == '\n' || src == module->source) {
-        printf("\n%-4d%s ", lineCnt, (lineCnt == line ? "*": " "));
-        if (src == module->source) putc(*src, stdout);
+        fprintOut(outstream, "\n%-4d%s ", lineCnt, (lineCnt == line ? "*": " "));
+        if (src == module->source) putc(*src, outstream);
       } else
-        putc(*src, stdout);
+        fputcOut(*src, outstream);
     } if (lineCnt > toLine) break;
     src++;
   }
-  putc('\n', stdout);
+  fputcOut('\n', outstream);
 }
 
 static void printWatchpoints() {
@@ -59,8 +82,17 @@ static void printWatchpoints() {
     if (vm_eval(&value, wp->expr) == INTERPRET_OK &&
         !IS_NIL(value))
     {
-      printf(" %s:%s\n", wp->expr, valueToString(value)->chars);
+      fprintOut(outstream, " %s:%s\n", wp->expr, valueToString(value)->chars);
     }
+  }
+}
+
+static void runBreakpointCmds(Breakpoint *bp) {
+  if (bp->commands != NULL) {
+    bool silent = silentMode;
+    silentMode = bp->silenceCmds;
+    parseCommands(bp->commands);
+    silentMode = silent;
   }
 }
 
@@ -71,7 +103,7 @@ static void processEvents() {
 
   rl_completer_word_break_characters = " .";
   while (debugger.isHalted) {
-    printf("**** debugger interface ****\n");
+    fprintOut(outstream, "**** debugger interface ****\n");
     char *buffer = readline("> ");
     if (buffer != NULL) {
       if (strlen(buffer) > 0) {
@@ -145,7 +177,7 @@ static void checkBreakpoints() {
         if (!bp->evalCondition) {
           if (vm_evalBuild(&bp->evalCondition, bp->condition) !=
               INTERPRET_OK) {
-            printf("Breakpoint %d condition invalid.(%s)\n",
+            fprintOut(outstream, "Breakpoint %d condition invalid.(%s)\n",
                   nr, bp->condition);
             FREE_ARRAY(char, (char*)bp->condition,
                       strlen(bp->condition) +1);
@@ -165,10 +197,11 @@ static void checkBreakpoints() {
 afterEvalCondtion:
       if (bp->hits++ >= bp->ignoreCount) {
         debugger.isHalted = true;
-        printf("\n* stopped at breakpoint %d in %s\n* file:%s\n",
+        fprintOut(outstream, "\n* stopped at breakpoint %d in %s\n* file:%s\n",
                nr, module->name->chars,
                module->path->chars);
         printSource(line, 2);
+        runBreakpointCmds(bp);
         processEvents();
       }
     }
@@ -314,7 +347,8 @@ static int readInt() {
 
 // read a word, such as a identifier
 static const char *readWord() {
-  static char buf[100] = {0}, *pbuf = buf;
+  static char buf[100] = {0};
+  char *pbuf = buf;
   if (isalpha(*cmd) || (*cmd == '_'))
     *pbuf++ = (char)tolower(*cmd++);
 
@@ -370,33 +404,33 @@ static int compareKeyVal(const void *a, const void *b) {
 }
 
 static void nfo_brk() {
-  printf("breakpoint info\n");
+  fprintOut(outstream, "breakpoint info\n");
   Breakpoint *bp = debugger.breakpoints;
   for (int nr = 1; bp != NULL; bp = bp->next, nr++) {
-    printf("[%d] breakpoint at %s:%d\n", nr,
+    fprintOut(outstream, "[%d] breakpoint at %s:%d\n", nr,
            bp->module->path->chars, bp->line);
-    printf("      hits:%d ignoreCount:%d enabled:%d\n",
+    fprintOut(outstream, "      hits:%d ignoreCount:%d enabled:%d\n",
            bp->hits, bp->ignoreCount, bp->enabled);
     if (bp->condition != NULL)
-      printf("      condition:%s\n", bp->condition);
+      fprintOut(outstream, "      condition:%s\n", bp->condition);
   }
 }
 
 static void nfo_wtch() {
-  printf("watchpoint info\n");
+  fprintOut(outstream, "watchpoint info\n");
   Watchpoint *wp = debugger.watchpoints;
   for (int nr = 1; wp != NULL; wp = wp->next, nr++) {
-    printf("[%d] watchpoint expr:%s\n", nr, wp->expr);
+    fprintOut(outstream, "[%d] watchpoint expr:%s\n", nr, wp->expr);
   }
 }
 
 static void nfo_frm() {
-  printf("info frame\n");
+  fprintOut(outstream, "info frame\n");
   int stackLvl = 0;
   for (; stackLvl < vm.frameCount; ++ stackLvl)
     if (&vm.frames[vm.frameCount - 1 - stackLvl] == frame) break;
 
-  printf("Stack level #%d frame '%s' in module '%s'\n"
+  fprintOut(outstream, "Stack level #%d frame '%s' in module '%s'\n"
          " at '%s'\n at line:%d\n",
     stackLvl,
     frame->closure->function->name->chars,
@@ -407,7 +441,7 @@ static void nfo_frm() {
 }
 
 static void nfo_loc() {
-  printf("info locals\n");
+  fprintOut(outstream, "info locals\n");
   Compiler *compiler = frame->closure->function->chunk.compiler;
   KeyVal *keyValues =
     ALLOCATE(KeyVal, compiler->localCount +
@@ -435,7 +469,7 @@ static void nfo_loc() {
 
   // output values
   for (int i = 0; i < pkeyVal - keyValues; ++i) {
-    printf("[%s] %12s = %s\n",
+    fprintOut(outstream, "[%s] %12s = %s\n",
            typeOfValue(keyValues[i].value),
            keyValues[i].key,
            valueToString(keyValues[i].value)->chars);
@@ -446,7 +480,7 @@ static void nfo_loc() {
 }
 
 static void nfo_gbl() {
-  printf("info globals\n");
+  fprintOut(outstream, "info globals\n");
 
   KeyVal *keyVal = ALLOCATE(KeyVal, vm.globals.count);
   ValueArray globalKeys = tableKeys(&vm.globals);
@@ -463,7 +497,7 @@ static void nfo_gbl() {
 
   // print globals
   for (int i = 0; i < globalKeys.count; ++i) {
-    printf("[%-12s] %s:%s\n",
+    fprintOut(outstream, "[%-12s] %s:%s\n",
            typeOfValue(keyVal[i].value),
            keyVal[i].key,
            valueToString(keyVal[i].value)->chars);
@@ -491,7 +525,7 @@ static void info_() {
     }
   }
 
-  printf("Unrecognized info cmd %s\n", readWord());
+  fprintOut(outstream, "Unrecognized info cmd %s\n", readWord());
 }
 
 typedef struct HlpInfo {
@@ -514,9 +548,17 @@ const HlpInfo hlpInfos[] = {
     "break line      Sets a breakpoint at line in current file.\n"
     "break file:line Sets a breakpoint at line in file"
   },{
+    "b",1,
+    "b               Shorthand for break.\n"
+  },{
     "clear", 5,
     "clear           Clears all breakpoints.\n"
     "clear nr        Clears breakpoint with number nr\n"
+  },{
+    "commands", 8,
+    "commands nr     Specify commands that should run each time a \n"
+    "                breakpoint nr triggers, if silent prevent printout\n"
+    "commands nr [silent] \n...list of commands\nend\n"
   },{
     "cond", 4,
     "cond nr expression   Sets a condition that triggers breakpoint.\n"
@@ -556,6 +598,9 @@ const HlpInfo hlpInfos[] = {
     "en", 2,
     "en              Shorthand for enable\n"
     "en nr           Shorthand for enable nr\n"
+  },{
+    "end", 3,
+    "end             Ends a command list for a breakpoint\n"
   },{
     "frame", 5,
     "frame           Select current frame.\n"
@@ -616,29 +661,29 @@ static void help_() {
   skipWhitespace();
   if (isAtEnd()) {
     for (int i = 0; i < sizeof(hlpInfos) / sizeof(hlpInfos[0]); ++i) {
-      printf("\n%s", hlpInfos[i].msg);
+      fprintOut(outstream,"\n%s", hlpInfos[i].msg);
     }
     return;
   }
 
   for (int i = 0; i < sizeof(hlpInfos) / sizeof(hlpInfos[0]); ++i) {
     if (memcmp(cmd, hlpInfos[i].name, hlpInfos[i].nameLen) == 0) {
-      printf("%s", hlpInfos[i].msg);
+      fprintOut(outstream,"%s", hlpInfos[i].msg);
       cmd += hlpInfos[i].nameLen;
       return;
     }
   }
-  printf("Unrecognized command to help %s\n", readWord());
+  fprintOut(outstream,"Unrecognized command to help %s\n", readWord());
 }
 
 static void backtrace_() {
-  printf("backtrace\n");
+  fprintOut(outstream, "backtrace\n");
   skipWhitespace();
   int limit = vm.frameCount;
   if (!isAtEnd()) {
     limit -= readInt();
     if (limit < 1) {
-      printf("Invalid limit\n");
+      fprintOut(outstream,"Invalid limit\n");
       return;
     }
   }
@@ -647,7 +692,7 @@ static void backtrace_() {
     CallFrame *frm = &vm.frames[vm.frameCount - 1 - i];
     const char *fnName = frm->closure->function->name != NULL ?
       frm->closure->function->name->chars : "<script>";
-    printf("#%d %s at %s at %s:%d\n",
+    fprintOut(outstream,"#%d %s at %s at %s:%d\n",
           i,
           frm == frame ? "*" : " ",
           fnName,
@@ -666,7 +711,7 @@ static void readLineAndPath(int *lnNr, const char **path) {
     if (isalpha(*cmd)) {
       *path = readPath();
       if (*cmd != ':') {
-        printf("Expected ':' between file and linenr, but got: %c.\n", *cmd);
+        fprintOut(outstream,"Expected ':' between file and linenr, but got: %c.\n", *cmd);
         return;
       }
     }
@@ -681,11 +726,11 @@ static void break_() {
   readLineAndPath(&lnNr, &path);
   Module *mod = getModule(path);
   if (!mod) {
-    printf("Module with path:%s not loaded.\n", path);
+    fprintOut(outstream,"Module with path:%s not loaded.\n", path);
     return;
   }
   setBreakpointAtLine(lnNr, mod);
-  printf("Set breakpoint at %s:%d\n", path, lnNr);
+  fprintOut(outstream,"Set breakpoint at %s:%d\n", path, lnNr);
 }
 
 static void clear_() {
@@ -694,14 +739,70 @@ static void clear_() {
   readLineAndPath(&lnNr, &path);
   Module *mod = getModule(path);
   if (!mod) {
-    printf("Module with path:%s not loaded.\n", path);
+    fprintOut(outstream, "Module with path:%s not loaded.\n", path);
     return;
   }
   if (clearBreakpointAtLine(lnNr, mod)) {
-    printf("Cleared breakpoint at %s:%d\n", path, lnNr);
+    fprintOut(outstream, "Cleared breakpoint at %s:%d\n", path, lnNr);
   } else {
-    printf("Breakpoint not found, %s:%d \n", path, line);
+    fprintOut(outstream, "Breakpoint not found, %s:%d \n", path, line);
   }
+
+}
+
+// add commands that run each time breakpoint triggers
+static void commands_() {
+  skipWhitespace();
+  if (isAtEnd()) {
+    fprintOut(errstream, "Expects a breakpoint nr.\n");
+    return;
+  }
+  int bpNr = readInt();
+  Breakpoint *bp = getBreakpointByIndex(bpNr);
+  if (bp == NULL) {
+    fprintOut(errstream, "Breakpoint %d not found\n", bpNr);
+    return;
+  }
+
+  // optional silent keyword
+  skipWhitespace();
+  const char *silentWord = readWord();
+  bool silent = silentWord != NULL &&
+                    strcmp(silentWord, "silent") == 0;
+  skipWhitespace();
+
+  // look for end
+  if (*cmd == '\n') cmd++;
+  const char *endPos = NULL, *start = cmd;
+  bool cleanLine = true;
+  for (; *cmd != '\0'; cmd++) {
+    // if starts with e on a fresh line
+    if (cleanLine && *cmd == 'e') endPos = cmd;
+    else if (endPos != NULL && cmd - endPos == 3) {
+      if (memcmp(endPos, "end", 3) == 0) break;
+      endPos = NULL;
+    }
+    // if a new line
+    if (*cmd == '\n')
+      cleanLine = true;
+    else if (!isspace(*cmd) && cleanLine)
+      cleanLine = false;
+  }
+
+  if (endPos == NULL) {
+    fprintOut(errstream, "End not found in commands list.\n");
+    return;
+  }
+
+  if (bp->commands != NULL)
+    FREE_ARRAY(char, (char*)bp->commands, strlen(bp->commands));
+
+  char *commands = ALLOCATE(char, (size_t)(cmd - start +1));
+  memcpy(commands, start, endPos - start);
+  commands[(size_t)(cmd - start)] = '\0';
+
+  bp->commands = commands;
+  bp->silenceCmds = silent;
 
 }
 
@@ -713,14 +814,14 @@ static void comment_() {
 static void cond_() {
   skipWhitespace();
   if (isAtEnd() || !isdigit(*cmd)) {
-    printf("Expect breakpoint nr after 'cond'.\n");
+    fprintOut(outstream, "Expect breakpoint nr after 'cond'.\n");
     return;
   }
 
   int nr = readInt();
   Breakpoint *bp = getBreakpointByIndex(nr);
   if (bp == NULL) {
-    printf("Breakpoint %d not found.\n", nr);
+    fprintOut(outstream,"Breakpoint %d not found.\n", nr);
     return;
   }
 
@@ -733,7 +834,7 @@ static void cond_() {
   skipWhitespace();
   if (isAtEnd()) {
     // clear condition
-    printf("Cleared condition for breakpoint %d at %s:%d.\n",
+    fprintOut(outstream,"Cleared condition for breakpoint %d at %s:%d.\n",
           nr, bp->module->path->chars, bp->line);
     return;
   }
@@ -745,7 +846,7 @@ static void cond_() {
     FREE_ARRAY(char, (char*)bp->condition, strlen(bp->condition)+1);
   bp->condition = cond;
 
-  printf("condtion %s set for breakpoint %d at %s:%d\n",
+  fprintOut(outstream,"condtion %s set for breakpoint %d at %s:%d\n",
          cond, nr, bp->module->path->chars, bp->line);
 }
 
@@ -758,28 +859,28 @@ static void continue_() {
 static void delete_() {
   skipWhitespace();
   if (isAtEnd() || !isdigit(*cmd)) {
-    printf("Expects breakpoint nr after delete command.\n");
+    fprintOut(outstream,"Expects breakpoint nr after delete command.\n");
     return;
   }
 
   clearBreakpoint(getBreakpointByIndex(readInt()));
-  printf("Delete breakpoint.");
+  fprintOut(outstream,"Delete breakpoint.");
 }
 
 static void setEnable(const char *cmd, bool state) {
   skipWhitespace();
   if (isAtEnd()) {
     if (!isdigit(*cmd)) {
-      printf("Expect breakpoint nr after %s command.\n", cmd);
+      fprintOut(outstream,"Expect breakpoint nr after %s command.\n", cmd);
     }
     int nr = readInt();
     Breakpoint *bp = getBreakpointByIndex(nr);
     if (!bp) {
-      printf("Breakpoint %d not found.\n", nr);
+      fprintOut(outstream,"Breakpoint %d not found.\n", nr);
       return;
     }
     bp->enabled = state;
-    printf("Set breakpoint %sed.\n", cmd);
+    fprintOut(outstream,"Set breakpoint %sed.\n", cmd);
     return;
   }
 
@@ -803,7 +904,7 @@ static void down_() {
   }
 
   stackLvl = stackLvl < vm.frameCount -1 ? stackLvl +1 : stackLvl;
-  printf("down to frame #%d\n", stackLvl);
+  fprintOut(outstream,"down to frame #%d\n", stackLvl);
   setCurrentFrame(stackLvl);
 }
 
@@ -818,9 +919,9 @@ static void echo_() {
 
   while (start <= cmd) {
     if (*start == '\\' && *(++start) == 'n')
-      putc('\n', stdout);
+      fputcOut('\n', outstream);
     else
-      putc(*start, stdout);
+      fputcOut(*start, outstream);
     ++start;
   }
 }
@@ -834,7 +935,7 @@ static void frame_() {
   skipWhitespace();
   if (!isAtEnd()) {
     if (!isdigit(*cmd)) {
-      printf("Expect nr after frame\n");
+      fprintOut(outstream,"Expect nr after frame\n");
       return;
     }
     stackLvl = readInt();
@@ -842,11 +943,11 @@ static void frame_() {
 
   int frameIdx = vm.frameCount -1 - stackLvl;
   if (frameIdx < 0){
-    printf("Invalid frame nr.\n");
+    fprintOut(outstream,"Invalid frame nr.\n");
     return;
   }
 
-  printf("Select frame %d\n", stackLvl);
+  fprintOut(outstream,"Select frame %d\n", stackLvl);
   setCurrentFrame(stackLvl);
 }
 
@@ -858,14 +959,14 @@ static void finish_() {
 static void ignore_() {
   skipWhitespace();
   if (isAtEnd() || !isdigit(*cmd)) {
-    printf("Expect breakpoint nr after ignore cmd\n");
+    fprintOut(outstream,"Expect breakpoint nr after ignore cmd\n");
     return;
   }
 
   int nr = readInt();
   skipWhitespace();
   if (isAtEnd() || !isdigit(*cmd)) {
-    printf("Expect ignore count after breakpoint nr.\n");
+    fprintOut(outstream,"Expect ignore count after breakpoint nr.\n");
     return;
   }
 
@@ -902,7 +1003,7 @@ static void next_() {
 static void print_() {
   skipWhitespace();
   if (isAtEnd()) {
-    printf("Expect a expression as param to print.\n");
+    fprintOut(outstream,"Expect a expression as param to print.\n");
     return;
   }
 
@@ -910,7 +1011,8 @@ static void print_() {
   int len = readRestOfRow(&row);
   Value value;
   vm_eval(&value, row);
-  printf("print (%s) = %s\n", row, valueToString(value)->chars);
+  // this printout should print event though silent mode is active
+  fprintf(outstream,"print (%s) = %s\n", row, valueToString(value)->chars);
   FREE_ARRAY(char, row, len);
 }
 
@@ -932,21 +1034,21 @@ static void up_() {
   }
 
   stackLvl = stackLvl > 0 ? stackLvl -1 : 0;
-  printf("up to frame #%d\n", stackLvl);
+  fprintOut(outstream,"up to frame #%d\n", stackLvl);
   setCurrentFrame(stackLvl);
 }
 
 static void watch_() {
   skipWhitespace();
   if (*cmd == '\0') {
-    printf("Expect a expression as param to watch.\n");
+    fprintOut(outstream,"Expect a expression as param to watch.\n");
     return;
   }
 
   char *row;
   int len = readRestOfRow(&row);
 
-  printf("Setting watch %s\n", row);
+  fprintOut(outstream,"Setting watch %s\n", row);
   setWatchpointByExpr(row);
   FREE_ARRAY(char, row, len+1);
 }
@@ -955,10 +1057,12 @@ const CmdTbl cmds[] = {
   { "backtrace", 9, backtrace_ },
   { "bt", 2, backtrace_ },
   { "break", 5, break_  },
+  { "b", 1, break_},
   { "clear", 5, clear_},
   { "cond", 4, cond_},
   { "continue", 8, continue_},
   { "c", 1, continue_},
+  { "commands", 8, commands_},
   { "delete", 6, delete_},
   { "del", 3, delete_},
   { "disable", 7, disable_},
@@ -993,9 +1097,14 @@ static void parseCommands(const char *commands) {
 
 next_cmd:
   while(!isAtEnd()) {
+    skipWhitespace();
+    const char *cmdWd = *cmd == '#' ? "#" : readWord();
+    int len = strlen(cmdWd);
     for (int i = 0; i < sizeof(cmds) / sizeof(cmds[0]); ++i) {
-      if (memcmp(cmd, cmds[i].name, cmds[i].nameLen) == 0) {
-        cmd += cmds[i].nameLen;
+      if (len == cmds[i].nameLen &&
+          memcmp(cmdWd, cmds[i].name, cmds[i].nameLen) == 0)
+      {
+        //cmd += cmds[i].nameLen;
         cmds[i].parseFn();
         while(*cmd != '\n' && *cmd != '\0') cmd++; // trim unwanted stuff
         while (*cmd == '\n') cmd++; // eat up closing '\n'
@@ -1006,7 +1115,7 @@ next_cmd:
     // not found, print error message
     char *row;
     int rowlen = readRestOfRow(&row);
-    fprintf(stderr, "***Unrecognized command:%s\n", row);
+    fprintOut(errstream, "***Unrecognized command: '%s%s'\n", cmdWd, row);
     FREE_ARRAY(char, row, rowlen+1);
     break;
   }
@@ -1025,6 +1134,8 @@ void initBreakpoint(Breakpoint *breakpoint) {
   breakpoint->condition = NULL;
   breakpoint->evalCondition = NULL;
   breakpoint->enabled = true;
+  breakpoint->commands = NULL;
+  breakpoint->silenceCmds = false;
 }
 
 void initWatchpoint(Watchpoint *watchpoint) {
@@ -1033,9 +1144,13 @@ void initWatchpoint(Watchpoint *watchpoint) {
 }
 
 void freeBreakpoint(Breakpoint *breakpoint) {
+  if (breakpoint->condition)
+    FREE_ARRAY(char, (char*)breakpoint->condition,
+               strlen(breakpoint->condition) + 1);
+  if (breakpoint->commands)
+    FREE_ARRAY(char, (char*)breakpoint->commands,
+               strlen(breakpoint->commands) + 1);
   FREE(Breakpoint, breakpoint);
-  FREE_ARRAY(char, (char*)breakpoint->condition,
-             strlen(breakpoint->condition) + 1);
 }
 
 void freeWatchpoint(Watchpoint *watchpoint) {
@@ -1048,6 +1163,14 @@ void initDebugger() {
   debugger.watchpoints = NULL;
   debugger.state = DBG_RUN;
   debugger.isHalted = false;
+
+  setDebuggerIOStreams(stdin, stdout, stderr);
+}
+
+void setDebuggerIOStreams(FILE *in, FILE *out, FILE *err) {
+  outstream = out;
+  instream  = in;
+  errstream = err;
 }
 
 DebugStates debuggerState() {
@@ -1093,7 +1216,7 @@ void setBreakpointAtLine(int line, Module *module) {
 
 Breakpoint *getBreakpoint(int line, Module *module) {
   Breakpoint *bp = debugger.breakpoints;
-  while (bp != NULL) {
+  for (; bp != NULL; bp = bp->next) {
     if (bp->module == module && bp->line == line)
       return bp;
   }
@@ -1103,13 +1226,10 @@ Breakpoint *getBreakpoint(int line, Module *module) {
 
 // get breakpoint at index or NULL if none existing
 Breakpoint *getBreakpointByIndex(int brkpntNr) {
-  int nr = 0;
   Breakpoint *bp = debugger.breakpoints;
-  while (bp != NULL) {
+  for (int nr = 1;bp != NULL; nr++, bp = bp->next) {
     if (brkpntNr == nr)
       return bp;
-    ++nr;
-    bp = bp->next;
   }
   return NULL;
 }

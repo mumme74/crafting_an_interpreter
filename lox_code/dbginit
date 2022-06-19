@@ -4,7 +4,16 @@
 #cond 0 x == "outer"
 break 59
 #cond 1 c==3
-#break 61
+commands 1
+echo Command run when nr 1 is triggrered.
+info locals
+end
+break 61
+commands 2 silent
+echo should not be printed!\n
+print "should be printed"
+print c
+end
 watch x
 watch c
 #watch b + e

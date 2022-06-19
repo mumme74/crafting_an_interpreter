@@ -1,6 +1,7 @@
 #ifndef LOX_DEBUGGER_H
 #define LOX_DEBUGGER_H
 
+#include <stdio.h>
 #include "module.h"
 
 typedef struct ObjClosure ObjClosure;
@@ -27,8 +28,10 @@ typedef struct Breakpoint {
   struct Breakpoint *next;
   int line, ignoreCount, hits;
   const char *condition;
+  const char *commands;
   ObjClosure *evalCondition;
-  bool enabled;
+  bool enabled,
+       silenceCmds;
 } Breakpoint;
 
 typedef struct Watchpoint {
@@ -53,6 +56,8 @@ void freeBreakpoint(Breakpoint *breakpoint);
 void freeWatchpoint(Watchpoint *watchpoint);
 // initialize debugger
 void initDebugger();
+// re-point debbugger io streams
+void setDebuggerIOStreams(FILE *in, FILE *out, FILE *err);
 // return the current debug state
 DebugStates debuggerState();
 // sets the debugger state
