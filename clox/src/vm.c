@@ -265,7 +265,8 @@ static InterpretResult run() {
     OP(OP_JUMP_IF_FALSE), OP(OP_LOOP), OP(OP_CALL), OP(OP_INVOKE),
     OP(OP_SUPER_INVOKE), OP(OP_CLOSURE), OP(OP_CLOSE_UPVALUE),
     OP(OP_RETURN), OP(OP_EVAL_EXIT), OP(OP_CLASS), OP(OP_INHERIT),
-    OP(OP_METHOD), OP(OP_DICT), OP(OP_DICT_FIELD)
+    OP(OP_METHOD), OP(OP_DEFINE_DICT), OP(OP_DICT_FIELD),
+    OP(OP_DEFINE_ARRAY), OP(OP_ARRAY_PUSH)
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
@@ -427,7 +428,8 @@ static InterpretResult run() {
         if (array->arr.count -1 < AS_NUMBER(key) || AS_NUMBER(key) < 0)
           return runtimeError("Index out of range.\n");
 
-        push(array->arr.values[(int)AS_NUMBER(key)]);
+        array->arr.values[(int)AS_NUMBER(key)] = value;
+        push(value);
       } else
         return runtimeError("Only dict and arrays have subscript.\n");
 
@@ -569,14 +571,22 @@ static InterpretResult run() {
       defineMethod(READ_STRING());
       DBG_NEXT;
       BREAK;
-    CASE(OP_DICT)
+    CASE(OP_DEFINE_DICT)
       push(OBJ_VAL(OBJ_CAST(newDict())));
       DBG_NEXT;
       BREAK;
     CASE(OP_DICT_FIELD) {
       Table *fields = &AS_DICT(peek(1))->fields;
-      tableSet(fields, READ_STRING(), peek(0));
-      pop();
+      tableSet(fields, READ_STRING(), pop());
+      DBG_NEXT;
+    } BREAK;
+    CASE(OP_DEFINE_ARRAY)
+      push(OBJ_VAL(OBJ_CAST(newArray())));
+      DBG_NEXT;
+      BREAK;
+    CASE(OP_ARRAY_PUSH) {
+      ValueArray *array = &AS_ARRAY(peek(1))->arr;
+      pushValueArray(array, pop());
       DBG_NEXT;
     } BREAK;
     }

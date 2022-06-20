@@ -53,8 +53,10 @@ typedef enum {
   OP_CLASS,
   OP_INHERIT,
   OP_METHOD,
-  OP_DICT,
-  OP_DICT_FIELD
+  OP_DEFINE_DICT,
+  OP_DICT_FIELD,
+  OP_DEFINE_ARRAY,
+  OP_ARRAY_PUSH
 } OpCode;
 
 typedef struct {

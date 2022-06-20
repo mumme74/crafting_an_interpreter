@@ -69,8 +69,11 @@ static int functionToString(char **pbuf, ObjFunction *function) {
 
 static int arrayToString(char **pbuf, ObjArray *array) {
   ObjString *tmp = joinValueArray(&array->arr, copyString(",", 1));
-  *pbuf = tmp->chars;
-  return tmp->length;
+  *pbuf = ALLOCATE(char, tmp->length +3);
+  **pbuf = '[';
+  memcpy((*pbuf)+1, tmp->chars, tmp->length);
+  memcpy((*pbuf)+1+tmp->length, "]\0", 2);
+  return tmp->length +2;
 }
 
 static int dictToString(char **pbuf, ObjDict *dict) {

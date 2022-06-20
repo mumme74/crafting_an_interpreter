@@ -46,8 +46,9 @@ importParam    -> IDENTIFIER ( "as" IDENTIFIER)*
 
 parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
 
-expression     -> dictDecl | assignment ;
-dictDecl       -> '{' (objectKeyValue (',' objectKeyValue*))* '}' ;
+expression     -> arrayDecl | dictDecl | assignment ;
+arrayDecl      -> '[' expression ( ',' expression )? ']' ;
+dictDecl       -> '{' (dictKeyValue (',' dictKeyValue*))* '}' ;
 dictKeyValue   -> IDENTIFIER ':' expression ;
 assignment     -> ( call "." )? IDENTIFIER ("="|"+="|-=|*=|/=) assignment
                 | logic_or ;
@@ -74,7 +75,8 @@ primary        -> "true" | "false" | "nil"
 
 typedef struct Parser {
   Token current,
-        previous;
+        previous,
+        prePrevious;
   bool hadError,
        panicMode;
 } Parser;
@@ -178,6 +180,7 @@ static Chunk *currentChunk() {
 
 // move provard in token list
 static void advance() {
+  parser.prePrevious = parser.previous;
   parser.previous = parser.current;
 
   for (;;) {
@@ -1132,7 +1135,6 @@ static void subscript(bool canAssign) {
   Chunk *chunk = currentChunk();
   int getObjPos = chunk->count - 2;
   expression();
-  uint8_t name = chunk->code[chunk->count-1];
   int getExprPos = chunk->count - 2;
 
   consume(TOKEN_RIGHT_BRACKET, "Expect ']'.");
@@ -1157,6 +1159,19 @@ static void subscript(bool canAssign) {
   } else {
     emitByte(OP_GET_SUBSCRIPT);
   }
+}
+
+// declare an array ie. = [ ... ]
+static void arrayDecl(bool canAssign) {
+  emitByte(OP_DEFINE_ARRAY);
+  while (parser.current.type != TOKEN_RIGHT_BRACKET) {
+    expression();
+    if (parser.current.type != TOKEN_RIGHT_BRACKET)
+      consume(TOKEN_COMMA, "Expect ',' between array items.");
+    emitByte(OP_ARRAY_PUSH);
+  }
+
+  consume(TOKEN_RIGHT_BRACKET, "Expect ']' after array declaration.");
 }
 
 // '.' accessor for classes and dicts
@@ -1198,7 +1213,7 @@ static void literal(bool canAssign) {
 
 // parse a dict
 static void dict(bool canAssign) {
-  emitByte(OP_DICT);
+  emitByte(OP_DEFINE_DICT);
   while (parser.current.type == TOKEN_IDENTIFIER) {
     consume(TOKEN_IDENTIFIER, "Expect key.");
     uint8_t constant = identifierConstant(&parser.previous);
@@ -1209,7 +1224,7 @@ static void dict(bool canAssign) {
     emitBytes(OP_DICT_FIELD, constant);
   }
 
-  consume(TOKEN_RIGHT_BRACE, "Expect '}' after dict declaration");
+  consume(TOKEN_RIGHT_BRACE, "Expect '}' after dict declaration.");
 }
 
 static ParseRule rules[] = {
@@ -1217,7 +1232,7 @@ static ParseRule rules[] = {
   [TOKEN_RIGHT_PAREN]     = {NULL,      NULL,   PREC_NONE},
   [TOKEN_LEFT_BRACE]      = {dict,      NULL,   PREC_NONE},
   [TOKEN_RIGHT_BRACE]     = {NULL,      NULL,   PREC_NONE},
-  [TOKEN_LEFT_BRACKET]    = {NULL,      subscript, PREC_CALL},
+  [TOKEN_LEFT_BRACKET]    = {arrayDecl, subscript, PREC_CALL},
   [TOKEN_RIGHT_BRACKET]   = {NULL,      NULL,   PREC_NONE},
   [TOKEN_COMMA]           = {NULL,      NULL,   PREC_NONE},
   [TOKEN_DOT]             = {NULL,      dot,    PREC_CALL},
@@ -1310,7 +1325,8 @@ static void initParser(Parser *parser) {
   parser->current.length = parser->current.line =
     parser->previous.length = parser->previous.line = 0;
   parser->current.start = parser->previous.start = '\0';
-  parser->current.type = parser->previous.type = TOKEN_EOF;
+  parser->current.type = parser->previous.type =
+    parser->prePrevious.type = TOKEN_EOF;
 }
 
 // ---------------------------------------------

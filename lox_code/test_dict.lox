@@ -1,17 +1,24 @@
-print "test_dict.lox";
+print "test_dict.lox\n";
 
 var dict = {};
 dict.test = 0;
-print dict;
+print dict; print "\n";
 
 var dict1 = {_gh:1, hej:"dest"};
 
 dict1._gh += 1;
-print dict1._gh;
+print dict1._gh; print "\n";
 dict1.hej += " for me";
-print dict1.hej;
+print dict1.hej; print "\n";
 
 print dict1.hej = "nej";
 
 var key = "hej";
-print dict1[key];
+print dict1[key]; print "\n";
+print dict1["_gh"]; print "\n";
+print dict1["_gh"] +=1; print "\n";
+
+fun tst(){ print "inside tst";}
+dict1["prop1"] = tst;
+print dict1.prop1(); print "\n";
+print dict1["prop1"](); print "\n";

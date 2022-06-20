@@ -50,7 +50,7 @@ bool setValueArray(ValueArray *array, int index, Value *value) {
 }
 
 ObjString *joinValueArray(ValueArray *array, ObjString *sep) {
-  int len = sep->length * array->count, // for the sep chars
+  int len = 0,
       allocBytes = 20 * array->count;
   char *buf = ALLOCATE(char, allocBytes);
   for (int i = 0; i < array->count; ++i) {
@@ -70,7 +70,9 @@ ObjString *joinValueArray(ValueArray *array, ObjString *sep) {
     len += tmp->length;
   }
 
-  return takeString(buf, len);
+  ObjString *ret = copyString(buf, len);
+  FREE_ARRAY(char, buf, len);
+  return ret;
 }
 
 /*ObjString joinValueArray(ValueArray *array, ObjString sep) {
