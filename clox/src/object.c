@@ -16,29 +16,30 @@
 #define ALLOCATE_OBJ(type, objectType) \
   (type*)allocateObject(sizeof(type), objectType)
 
-// cache string lookups
-static ObjString *toString_str = NULL,
-                 *length_str = NULL;
-static ObjNativeMethod *toString_nativeMethod = NULL;
-static ObjNativeProp *length_nativeProp = NULL;
+// all objects inherit these
+static ObjPrototype
+ *objBase = NULL, *objStringBase = NULL,
+ *objArrayBase = NULL, *objDictBase = NULL;
 
 static Value objToStr(Value obj, int argCount, Value *args) {
   (void)argCount; (void)args;
   return OBJ_VAL((Obj*)objectToString(obj));
 }
 
-static void initObj(Obj* object) {
-  initTable(&object->propsNative);
-  initTable(&object->methodsNative);
-  ObjNativeMethod *toStrFn = toString_nativeMethod;
-  tableSet(&object->methodsNative, toString_str,
-           OBJ_VAL(OBJ_CAST(toStrFn)));
+static Value getArrLen(Value obj) {
+  ObjArray *array = AS_ARRAY(obj);
+  return NUMBER_VAL(array->arr.count);
+}
+
+static Value getStrLen(Value obj) {
+  return NUMBER_VAL(AS_STRING(obj)->length);
 }
 
 static Obj* allocateObject(size_t size, ObjType type) {
   Obj *object = (Obj*)reallocate(NULL, 0, size);
   object->type = type;
   object->flags = 0;
+  object->prototype = objBase;
 
   object->next = vm.infantObjects;
   vm.infantObjects = object;
@@ -54,14 +55,13 @@ static ObjString *allocateString(char *chars, int length,
                                  uint32_t hash)
 {
   ObjString *string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
-  initTable(&string->obj.methodsNative);
-  initTable(&string->obj.propsNative);
   string->length = length;
   string->chars = chars;
   string->hash = hash;
   string->obj.flags = GC_DONT_COLLECT;
   tableSet(&vm.strings, string, NIL_VAL);
   string->obj.flags = 0;
+  string->obj.prototype = objStringBase;
   return string;
 }
 
@@ -143,22 +143,41 @@ static int dictToString(char **pbuf, ObjDict *dict) {
 // -----------------------------------------------------------
 
 void initObjectsModule() {
-  // flags dont collect must be set immidiatly
-  length_str = copyString("length", 6);
-  length_str->obj.flags = GC_DONT_COLLECT;
+  // base inheritance tabels
+  objBase       = newPrototype(NULL);
+  objStringBase = newPrototype(objBase);
+  objArrayBase  = newPrototype(objBase);
 
-  toString_str = copyString("toString", 8);
+  // init objBase prototype
+  ObjString *toString_str = copyString("toString", 8);
   toString_str->obj.flags = GC_DONT_COLLECT;
+  tableSet(&objBase->methodsNative, toString_str,
+           OBJ_VAL((Obj*)newNativeMethod(objToStr, toString_str, 0)));
 
-  // methods to objects
-  toString_nativeMethod = newNativeMethod(objToStr, toString_str, 0);
-  //length_nativeProp = newNativeProp("length")
+  // init array prototype
+  ObjString *length_str = copyString("length", 6);
+  length_str->obj.flags = GC_DONT_COLLECT;
+  tableSet(&objArrayBase->propsNative, length_str,
+           OBJ_VAL((Obj*)newNativeProp(getArrLen, NULL, length_str)));
+
+  // init string prototype
+  tableSet(&objStringBase->propsNative, length_str,
+          OBJ_VAL((Obj*)newNativeProp(getStrLen, NULL, length_str)));
 }
 
 void freeObjectsModule() {
-  length_str->obj.flags = 0;
-  toString_str->obj.flags = 0;
-  toString_nativeMethod->obj.flags = 0;
+  objBase->obj.flags = 0;
+  objArrayBase->obj.flags = 0;
+  objStringBase->obj.flags = 0;
+}
+
+ObjPrototype *newPrototype(ObjPrototype *inherits){
+  ObjPrototype *objProt = ALLOCATE_OBJ(ObjPrototype, OBJ_PROTOTYPE);
+  objProt->obj.flags = GC_DONT_COLLECT;
+  initTable(&objProt->methodsNative);
+  initTable(&objProt->propsNative);
+  objProt->prototype = inherits;
+  return objProt;
 }
 
 ObjBoundMethod* newBoundMethod(Value reciever,
@@ -166,7 +185,6 @@ ObjBoundMethod* newBoundMethod(Value reciever,
 {
   ObjBoundMethod *bound =
     ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
-  initObj(&bound->obj);
   bound->reciever = reciever;
   bound->methods = method;
   return bound;
@@ -174,21 +192,19 @@ ObjBoundMethod* newBoundMethod(Value reciever,
 
 ObjArray *newArray() {
   ObjArray *array = ALLOCATE_OBJ(ObjArray, OBJ_ARRAY);
-  initObj(&array->obj);
+  array->obj.prototype = objArrayBase;
   initValueArray(&array->arr);
   return array;
 }
 
 ObjDict *newDict() {
   ObjDict *dict = ALLOCATE_OBJ(ObjDict, OBJ_DICT);
-  initObj(&dict->obj);
   initTable(&dict->fields);
   return dict;
 }
 
 ObjClass *newClass(ObjString *name) {
   ObjClass *klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
-  initObj(&klass->obj);
   klass->name = name;
   initTable(&klass->methods);
   return klass;
@@ -202,7 +218,6 @@ ObjClosure *newClosure(ObjFunction *function) {
   }
 
   ObjClosure *closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
-  initObj(&closure->obj);
   closure->function = function;
   closure->upvalues = upvalues;
   closure->upvalueCount = function->upvalueCount;
@@ -211,7 +226,6 @@ ObjClosure *newClosure(ObjFunction *function) {
 
 ObjFunction *newFunction() {
   ObjFunction *function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
-  initObj(&function->obj);
   function->arity = 0;
   function->upvalueCount = 0;
   function->name = NULL;
@@ -221,7 +235,6 @@ ObjFunction *newFunction() {
 
 ObjInstance *newInstance(ObjClass *klass) {
   ObjInstance *instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
-  initObj(&instance->obj);
   instance->klass = klass;
   initTable(&instance->fields);
   return instance;
@@ -229,7 +242,6 @@ ObjInstance *newInstance(ObjClass *klass) {
 
 ObjNativeFn *newNativeFn(NativeFn function, ObjString *name, int arity) {
   ObjNativeFn* native = ALLOCATE_OBJ(ObjNativeFn, OBJ_NATIVE_FN);
-  initObj(&native->obj);
   native->obj.flags = GC_DONT_COLLECT;
   native->function = function;
   native->arity = arity;
@@ -237,9 +249,8 @@ ObjNativeFn *newNativeFn(NativeFn function, ObjString *name, int arity) {
   return native;
 }
 
-ObjNativeProp *newNativeProp(NativeMethod getFn, NativeMethod setFn, ObjString *name) {
+ObjNativeProp *newNativeProp(NativePropGet getFn, NativePropSet setFn, ObjString *name) {
   ObjNativeProp *prop = ALLOCATE_OBJ(ObjNativeProp, OBJ_NATIVE_PROP);
-  initObj(&prop->obj);
   prop->obj.flags = GC_DONT_COLLECT;
   prop->name = name;
   prop->getFn = getFn;
@@ -249,7 +260,6 @@ ObjNativeProp *newNativeProp(NativeMethod getFn, NativeMethod setFn, ObjString *
 
 ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int arity) {
   ObjNativeMethod *method = ALLOCATE_OBJ(ObjNativeMethod, OBJ_NATIVE_METHOD);
-  initObj(&method->obj);
   method->arity = arity;
   method->method = function;
   method->name = name;
@@ -258,7 +268,6 @@ ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int ari
 
 ObjUpvalue *newUpvalue(Value *slot) {
   ObjUpvalue *upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
-  initObj(&upvalue->obj);
   upvalue->closed = NIL_VAL;
   upvalue->location = slot;
   upvalue->next = NULL;
@@ -305,6 +314,27 @@ ObjString *quoteString(ObjString *valueStr) {
   return takeString(buf, valueStr->length+2);
 }
 
+Value objPropNative(Obj *obj, ObjString *name) {
+  Value ret;
+  const ObjPrototype *p = obj->prototype;
+  for (; p != NULL; p = p->prototype) {
+    if (tableGet((Table*)&p->prototype->propsNative, name, &ret))
+      return ret;
+  }
+  return NIL_VAL;
+}
+
+Value objMethodNative(Obj *obj, ObjString *name) {
+  Value ret;
+  const ObjPrototype *p = obj->prototype;
+  for (; p != NULL; p = p->prototype) {
+    if (tableGet((Table*)&p->methodsNative, name, &ret)) {
+      return ret;
+    }
+  }
+  return NIL_VAL;
+}
+
 const char *typeOfObject(Obj* object) {
   switch (object->type){
   case OBJ_BOUND_METHOD: return "bound method";
@@ -319,6 +349,7 @@ const char *typeOfObject(Obj* object) {
   case OBJ_NATIVE_PROP:  return "property";
   case OBJ_STRING:       return "string";
   case OBJ_UPVALUE:      return "upvalue";
+  case OBJ_PROTOTYPE:    return "prototype";
   }
   return "undefined";
 }
@@ -389,6 +420,8 @@ ObjString *objectToString(Value value) {
     ret = AS_STRING(value); break;
   case OBJ_UPVALUE:
     ret = copyString("<upvalue>", 9); break;
+  case OBJ_PROTOTYPE:
+    ret = copyString("<prototype>", 11); break;
   }
 
   if (buf != NULL)

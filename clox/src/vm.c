@@ -100,7 +100,7 @@ static bool callValue(Value callee, int argCount) {
     case OBJ_NATIVE_METHOD: {
       ObjNativeMethod *nativeMethod = AS_NATIVE_METHOD(callee);
       if (nativeMethod->arity != argCount) {
-        runtimeError("method requires %d arguments.", nativeMethod->arity);
+        runtimeError("%s requires %d arguments.", nativeMethod->name, nativeMethod->arity);
         return false;
       }
       Value *args = vm.stackTop - argCount;
@@ -110,7 +110,7 @@ static bool callValue(Value callee, int argCount) {
       push(result);
       return true;
     }
-    case OBJ_NATIVE_PROP:
+    case OBJ_NATIVE_PROP: case OBJ_PROTOTYPE:
     case OBJ_DICT: case OBJ_ARRAY:
     case OBJ_STRING: case OBJ_UPVALUE:
     case OBJ_INSTANCE: case OBJ_FUNCTION:
@@ -146,7 +146,8 @@ static bool invoke(ObjString *name, int argCount) {
   }
   // lookup at native built in properties
   if (fields == NULL) {
-    if (tableGet(&AS_OBJ(reciever)->methodsNative, name, &value))
+    value = objMethodNative(AS_OBJ(reciever), name);
+    if (!IS_NIL(value))
       return callValue(value, argCount);
 
     runtimeError("Method %s not found.", name->chars);

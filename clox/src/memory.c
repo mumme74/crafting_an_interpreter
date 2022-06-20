@@ -29,9 +29,6 @@ static void freeObject(Obj *object) {
     printf("string=%s flags=%x\n", ((ObjString*)object)->chars, object->flags);
 #endif
 
-  freeTable(&object->propsNative);
-  freeTable(&object->methodsNative);
-
   switch (object->type) {
   case OBJ_BOUND_METHOD:
     FREE(ObjBoundMethod, object); break;
@@ -71,6 +68,12 @@ static void freeObject(Obj *object) {
     FREE(ObjNativeProp, object); break;
   case OBJ_NATIVE_METHOD:
     FREE(ObjNativeMethod, object); break;
+  case OBJ_PROTOTYPE: {
+    ObjPrototype *prot = (ObjPrototype*)object;
+    freeTable(&prot->methodsNative);
+    freeTable(&prot->propsNative);
+    FREE(ObjPrototype, prot);
+  } break;
   case OBJ_STRING: {
     ObjString *string = (ObjString*)object;
     FREE_ARRAY(char, string->chars, string->length +1);
@@ -129,7 +132,8 @@ static void blackenObject(Obj *object, ObjFlags flags) {
     break;
   case OBJ_STRING:
     break;
-  case OBJ_NATIVE_PROP: case OBJ_NATIVE_FN: case OBJ_NATIVE_METHOD:
+  case OBJ_NATIVE_PROP: case OBJ_NATIVE_FN:
+  case OBJ_NATIVE_METHOD: case OBJ_PROTOTYPE:
     break; // should never get GC'd
   }
 }

@@ -21,6 +21,7 @@
 #define IS_NATIVE_FN(value)        (isObjType(value, OBJ_NATIVE_FN))
 #define IS_NATIVE_PROP(value)      (isObjType(value, OBJ_NATIVE_PROP))
 #define IS_NATIVE_METHOD(value)    (isObjType(value, OBJ_NATIVE_METHOD))
+#define IS_PROTOTYPE(value)        (isObjType(value, OBJ_PROTOTYPE))
 #define IS_STRING(value)           (isObjType(value, OBJ_STRING))
 
 #define AS_IMPORT(value)           ((ObjImportLink*)AS_OBJ(value))
@@ -35,6 +36,7 @@
 #define AS_NATIVE_FN(value)        ((ObjNativeFn*)AS_OBJ(value))
 #define AS_NATIVE_PROP(value)      ((ObjNativeProp*)AS_OBJ(value))
 #define AS_NATIVE_METHOD(value)    ((ObjNativeMethod*)AS_OBJ(value))
+#define AS_PROTOTYPE(value)        ((ObjPrototype*)AS_OBJ(value))
 #define AS_STRING(value)           ((ObjString*)AS_OBJ(value))
 #define AS_CSTRING(value)          (((ObjString*)AS_OBJ(value))->chars)
 
@@ -50,8 +52,10 @@
 #define GC_DONT_COLLECT            0x08
 
 typedef struct Module Module;
+typedef struct ObjPrototype ObjPrototype;
 
 typedef enum {
+  OBJ_PROTOTYPE,
   OBJ_BOUND_METHOD,
   OBJ_ARRAY,
   OBJ_DICT,
@@ -68,12 +72,19 @@ typedef enum {
   //OBJ_IMPORT_LINK
 } ObjType;
 
+
 struct Obj {
   ObjType type;
   ObjFlags flags;
+  const ObjPrototype *prototype;
+  struct Obj* next;
+};
+
+struct ObjPrototype {
+  Obj obj;
+  struct ObjPrototype *prototype;
   Table propsNative,
         methodsNative;
-  struct Obj* next;
 };
 
 typedef struct ObjFunction {
@@ -85,7 +96,8 @@ typedef struct ObjFunction {
 } ObjFunction;
 
 typedef Value (*NativeFn)(int argCount, Value *args);
-typedef Value (*NativeProp)(Value obj, Value *vlu);
+typedef void (*NativePropSet)(Value obj, Value *vlu);
+typedef Value (*NativePropGet)(Value obj);
 typedef Value (*NativeMethod)(Value obj, int argCount, Value *args);
 
 typedef struct ObjNativeFn {
@@ -97,8 +109,8 @@ typedef struct ObjNativeFn {
 
 typedef struct ObjNativeProp {
   Obj obj;
-  NativeMethod getFn,
-               setFn;
+  NativePropGet getFn;
+  NativePropSet setFn;
   ObjString *name;
 } ObjNativeProp;
 
@@ -171,6 +183,7 @@ typedef struct ObjArray {
 void initObjectsModule();
 void freeObjectsModule();
 
+ObjPrototype   *newPrototype(ObjPrototype *inherits);
 ObjBoundMethod *newBoundMethod(Value reciever, ObjClosure *method);
 ObjArray       *newArray();
 ObjDict        *newDict();
@@ -180,7 +193,7 @@ ObjFunction    *newFunction();
 ObjInstance    *newInstance(ObjClass *klass);
 ObjNativeFn    *newNativeFn(NativeFn function, ObjString *name, int arity);
 ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int arity);
-ObjNativeProp  *newNativeProp(NativeMethod getFn, NativeMethod setFn, ObjString *name);
+ObjNativeProp  *newNativeProp(NativePropGet getFn, NativePropSet setFn, ObjString *name);
 ObjUpvalue     *newUpvalue(Value *slot);
 
 ObjImportLink  *newImportLink(Value *fromModule, Value *exportName);
@@ -200,6 +213,9 @@ ObjString      *quoteString(ObjString *valueStr);
 const char     *typeOfObject(Obj* object);
 // returns obj converted to string
 ObjString *objectToString(Value value);
+// lookups method in inheritance chain
+Value objMethodNative(Obj *obj, ObjString *name);
+
 // test if Object is of type
 static inline bool isObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;
