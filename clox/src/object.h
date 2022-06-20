@@ -12,6 +12,7 @@
 #define ID_IMPORT(value)           (isObjType(value, OBJ_IMPORT_LINK))
 #define IS_MODULE(value)           (isObjType(value, OBJ_MODULE))
 #define IS_BOUND_METHOD(value)     (isObjType(value, OBJ_BOUND_METHOD))
+#define IS_ARRAY(value)            (isObjType(value, OBJ_ARRAY))
 #define IS_DICT(value)             (isObjType(value, OBJ_DICT))
 #define IS_CLASS(value)            (isObjType(value, OBJ_CLASS))
 #define IS_CLOSURE(value)          (isObjType(value, OBJ_CLOSURE))
@@ -23,6 +24,7 @@
 #define AS_IMPORT(value)           ((ObjImportLink*)AS_OBJ(value))
 #define AS_MODULE(value)           ((ObjModule*)AS_OBJ(value))
 #define AS_BOUND_METHOD(value)     ((ObjBoundMethod*)AS_OBJ(value))
+#define AS_ARRAY(value)            ((ObjArray*)AS_OBJ(value))
 #define AS_DICT(value)             ((ObjDict*)AS_OBJ(value))
 #define AS_CLASS(value)            ((ObjClass*)AS_OBJ(value))
 #define AS_CLOSURE(value)          ((ObjClosure*)AS_OBJ(value))
@@ -47,6 +49,7 @@ typedef struct Module Module;
 
 typedef enum {
   OBJ_BOUND_METHOD,
+  OBJ_ARRAY,
   OBJ_DICT,
   OBJ_CLASS,
   OBJ_CLOSURE,
@@ -136,8 +139,14 @@ typedef struct ObjDict {
   Table fields;
 } ObjDict;
 
+typedef struct ObjArray {
+  Obj obj;
+  ValueArray arr;
+} ObjArray;
+
 
 ObjBoundMethod *newBoundMethod(Value reciever, ObjClosure *method);
+ObjArray       *newArray();
 ObjDict        *newDict();
 ObjClass       *newClass(ObjString *name);
 ObjClosure     *newClosure(ObjFunction *function);
@@ -149,13 +158,21 @@ ObjUpvalue     *newUpvalue(Value *slot);
 ObjImportLink  *newImportLink(Value *fromModule, Value *exportName);
 ObjModule      *newModule(Value *path);
 
+// takes chars intern them and return a ObjString
+// vm takes ownership of chars
 ObjString      *takeString(char *chars, int length);
+// copies chars intern them and return ObjString
+// vm does NOT own chars
 ObjString      *copyString(const char *chars, int length);
+// concat str1 with str2
 ObjString      *concatString(const char *str1, const char *str2, int len1, int len2);
-
+// add quotes to string ie. "..."
+ObjString      *quoteString(ObjString *valueStr);
+// returns type of object
 const char     *typeOfObject(Obj* object);
+// returns obj converted to string
 ObjString *objectToString(Value value);
-
+// test if Object is of type
 static inline bool isObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }

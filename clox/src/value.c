@@ -49,6 +49,30 @@ bool setValueArray(ValueArray *array, int index, Value *value) {
   return true;
 }
 
+ObjString *joinValueArray(ValueArray *array, ObjString *sep) {
+  int len = sep->length * array->count, // for the sep chars
+      allocBytes = 20 * array->count;
+  char *buf = ALLOCATE(char, allocBytes);
+  for (int i = 0; i < array->count; ++i) {
+    ObjString *tmp = IS_ARRAY(array->values[i]) ?
+                       quoteString(AS_STRING(array->values[i])) :
+                         valueToString(array->values[i]);
+    if (len + sep->length + tmp->length >= allocBytes) {
+      allocBytes += sep->length + tmp->length + 20 * (array->count - i);
+      buf = ALLOCATE(char, allocBytes);
+    }
+    if (i > 0) {
+      memcpy(buf + len, sep->chars, sep->length);
+      len += sep->length;
+    }
+
+    memcpy(buf + len, tmp->chars, tmp->length);
+    len += tmp->length;
+  }
+
+  return takeString(buf, len);
+}
+
 /*ObjString joinValueArray(ValueArray *array, ObjString sep) {
   // FIXME implement
 }*/

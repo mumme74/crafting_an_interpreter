@@ -1129,33 +1129,34 @@ static void call(bool canAssign) {
 
 // subscript access property dict[...] or array[1]
 static void subscript(bool canAssign) {
-  //Chunk *chunk = currentChunk();
+  Chunk *chunk = currentChunk();
+  int getObjPos = chunk->count - 2;
   expression();
-  //int exprPos = chunk->count-2;
-  //uint8_t name = chunk->count-1;
+  uint8_t name = chunk->code[chunk->count-1];
+  int getExprPos = chunk->count - 2;
 
   consume(TOKEN_RIGHT_BRACKET, "Expect ']'.");
-/* FIXME finish special subscript operator
+  // FIXME finish special subscript operator
   OpCode mutateCode = mutate(canAssign);
   if (mutateCode != OP_NIL) {
     Chunk *chunk = currentChunk();
-    int getObjPos = chunk->count - 2;
-    emitByte(chunk->code[getObjPos]);
-    emitByte(chunk->code[getObjPos+1]);
-    emitBytes(OP_GET_PROPERTY, name);
+    emitBytes(chunk->code[getObjPos], chunk->code[getObjPos+1]);
+    emitBytes(chunk->code[getExprPos], chunk->code[getExprPos+1]);
+    emitByte(OP_GET_SUBSCRIPT);
+    //emitByte(OP_GET_SUBSCRIPT);
     expression();
     emitByte(mutateCode);
-    emitBytes(OP_SET_PROPERTY, name);
+    emitByte(OP_SET_SUBSCRIPT);
   } else if (canAssign && match(TOKEN_EQUAL)) {
     expression();
-    emitBytes(OP_SET_PROPERTY, name);
+    emitByte(OP_SET_SUBSCRIPT);
   } else if (match(TOKEN_LEFT_PAREN)) {
+    emitByte(OP_GET_SUBSCRIPT);
     uint8_t argCount = argumentList();
-    emitBytes(OP_INVOKE, name);
-    emitByte(argCount);
+    emitBytes(OP_CALL, argCount);
   } else {
-    emitBytes(OP_GET_PROPERTY, name);
-  }*/
+    emitByte(OP_GET_SUBSCRIPT);
+  }
 }
 
 // '.' accessor for classes and dicts

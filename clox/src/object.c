@@ -67,6 +67,12 @@ static int functionToString(char **pbuf, ObjFunction *function) {
   return len;
 }
 
+static int arrayToString(char **pbuf, ObjArray *array) {
+  ObjString *tmp = joinValueArray(&array->arr, copyString(",", 1));
+  *pbuf = tmp->chars;
+  return tmp->length;
+}
+
 static int dictToString(char **pbuf, ObjDict *dict) {
   ValueArray keys = tableKeys(&dict->fields),
              parts;
@@ -82,6 +88,8 @@ static int dictToString(char **pbuf, ObjDict *dict) {
     if (tableGet(&dict->fields, AS_STRING(key), &value)) {
       len += AS_STRING(key)->length + 1;
       tmp = valueToString(value);
+      if (IS_STRING(value))
+        tmp = quoteString(tmp);
       len += tmp->length;
       pushValueArray(&parts, OBJ_VAL(OBJ_CAST(tmp)));
     }
@@ -118,6 +126,12 @@ ObjBoundMethod* newBoundMethod(Value reciever,
   bound->reciever = reciever;
   bound->methods = method;
   return bound;
+}
+
+ObjArray *newArray() {
+  ObjArray *array = ALLOCATE_OBJ(ObjArray, OBJ_ARRAY);
+  initValueArray(&array->arr);
+  return array;
 }
 
 ObjDict *newDict() {
@@ -211,17 +225,26 @@ ObjString *concatString(const char *str1, const char *str2, int len1, int len2) 
   return takeString(heapChars, len1 + len2);
 }
 
+ObjString *quoteString(ObjString *valueStr) {
+  char *buf = ALLOCATE(char, valueStr->length + 3);
+  *buf = '"';
+  memcpy(buf+1, valueStr->chars, valueStr->length);
+  memcpy((buf+1+valueStr->length), "\"\0", 2);
+  return takeString(buf, valueStr->length+2);
+}
+
 const char *typeOfObject(Obj* object) {
   switch (object->type){
   case OBJ_BOUND_METHOD: return "bound method";
-  case OBJ_DICT: return "dict";
-  case OBJ_CLASS: return "class";
-  case OBJ_CLOSURE: return "closure";
-  case OBJ_FUNCTION: return "function";
-  case OBJ_INSTANCE: return "instance";
-  case OBJ_NATIVE: return "function";
-  case OBJ_STRING: return "string";
-  case OBJ_UPVALUE: return "upvalue";
+  case OBJ_ARRAY:        return "array";
+  case OBJ_DICT:         return "dict";
+  case OBJ_CLASS:        return "class";
+  case OBJ_CLOSURE:      return "closure";
+  case OBJ_FUNCTION:     return "function";
+  case OBJ_INSTANCE:     return "instance";
+  case OBJ_NATIVE:       return "function";
+  case OBJ_STRING:       return "string";
+  case OBJ_UPVALUE:      return "upvalue";
   }
   return "undefined";
 }
@@ -236,6 +259,10 @@ ObjString *objectToString(Value value) {
                 AS_BOUND_METHOD(value)->methods->function);
     ret = copyString(buf, len);
    } break;
+  case OBJ_ARRAY: {
+    len = arrayToString(&buf, AS_ARRAY(value));
+    ret = copyString(buf, len);
+  } break;
   case OBJ_DICT: {
     len = dictToString(&buf, AS_DICT(value));
     ret = copyString(buf, len);

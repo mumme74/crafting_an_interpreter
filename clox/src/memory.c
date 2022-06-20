@@ -37,6 +37,10 @@ static void freeObject(Obj *object) {
     freeTable(&klass->methods);
     FREE(ObjClass, klass);
   } break;
+  case OBJ_ARRAY: {
+    ObjArray *array = (ObjArray*)object;
+    freeValueArray(&array->arr);
+  } break;
   case OBJ_DICT: {
     ObjDict *dict = (ObjDict*)object;
     freeTable(&dict->fields);
@@ -82,6 +86,10 @@ static void blackenObject(Obj *object, ObjFlags flags) {
     ObjBoundMethod *bound = (ObjBoundMethod*)object;
     markValue(bound->reciever, flags);
     markObject((Obj*)bound->methods, flags);
+  } break;
+  case OBJ_ARRAY: {
+    ObjArray *array = (ObjArray*)object;
+    markArray(&array->arr, flags);
   } break;
   case OBJ_DICT: {
     ObjDict *dict = (ObjDict*)object;

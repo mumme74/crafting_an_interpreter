@@ -26,8 +26,8 @@ static void resetStack() {
   vm.openUpvalues = NULL;
 }
 
-static void runtimeError(const char *format, ...) {
-  if (failOnRuntimeErr) return;
+static InterpretResult runtimeError(const char *format, ...) {
+  if (failOnRuntimeErr) return INTERPRET_RUNTIME_ERROR;
   va_list args;
   va_start(args, format);
   vfprintf(stderr, format, args);
@@ -47,6 +47,7 @@ static void runtimeError(const char *format, ...) {
   }
 
   resetStack();
+  return INTERPRET_RUNTIME_ERROR;
 }
 
 static bool call(ObjClosure *closure, int argCount) {
@@ -121,20 +122,24 @@ static bool invokeFromClass(ObjClass *klass, ObjString *name,
 
 static bool invoke(ObjString *name, int argCount) {
   Value reciever = peek(argCount);
-  if (!IS_INSTANCE(reciever)) {
-    runtimeError("Only instances have methods.");
+  Table *fields;
+  if (IS_INSTANCE(reciever)) {
+    fields = &AS_INSTANCE(reciever)->fields;
+  } else if (IS_DICT(reciever)) {
+    fields = &AS_DICT(reciever)->fields;
+  } else {
+    runtimeError("Only instances and dict can use invoke.");
     return false;
   }
 
-  ObjInstance *instance = AS_INSTANCE(reciever);
 
   Value value;
-  if (tableGet(&instance->fields, name, &value)) {
+  if (tableGet(fields, name, &value)) {
     vm.stackTop[-argCount -1] = value;
     return callValue(value, argCount);
-  }
-
-  return invokeFromClass(instance->klass, name, argCount);
+  } else if (IS_INSTANCE(reciever))
+    return invokeFromClass(AS_INSTANCE(reciever)->klass, name, argCount);
+  return false;
 }
 
 static bool bindMethod(ObjClass *klass, ObjString *name) {
@@ -300,10 +305,9 @@ static InterpretResult run() {
     CASE(OP_GET_GLOBAL) {
       ObjString *name = READ_STRING();
       Value value;
-      if (!tableGet(&vm.globals, name, &value)) {
-        runtimeError("Undefined variable '%s'.", name->chars);
-        return INTERPRET_COMPILE_ERROR;
-      }
+      if (!tableGet(&vm.globals, name, &value))
+        return runtimeError("Undefined variable '%s'.", name->chars);
+
       push(value);
     } BREAK;
     CASE(OP_GET_UPVALUE) {
@@ -312,29 +316,49 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_GET_PROPERTY) {
       Table *tbl = NULL;
-      Value obj = peek(0);
+      Value obj = pop();
       if (IS_DICT(obj)) {
         tbl = &AS_DICT(obj)->fields;
       } else if (IS_INSTANCE(obj)) {
         tbl = &AS_INSTANCE(obj)->fields;
       } else {
-        runtimeError("Only instances and dict's have fields.");
-        return INTERPRET_RUNTIME_ERROR;
+        return runtimeError("Only instances and dict's have fields.");
       }
 
       ObjString *name = READ_STRING();
-      Value value;
-      if (tableGet(tbl, name, &value)) {
-        pop();
-        push(value);
-        BREAK;
-      }
+      Value value = NIL_VAL;
+      tableGet(tbl, name, &value);
+      push(value);
 
       if (IS_INSTANCE(obj) &&
           !bindMethod(AS_INSTANCE(obj)->klass, name))
       {
         return INTERPRET_RUNTIME_ERROR;
       }
+
+    } BREAK;
+    CASE(OP_GET_SUBSCRIPT) {
+      Value key = pop(), obj = pop();
+      if (IS_DICT(obj)) {
+        ObjDict *dict = AS_DICT(obj);
+        if (!IS_STRING(key))
+          return runtimeError("Expect a string value for key.");
+
+        if (tableGet(&dict->fields, AS_STRING(key), &obj)) {
+          push(obj);
+        }
+      } else if (IS_ARRAY(obj)) {
+        ObjArray *array = AS_ARRAY(obj);
+        if (!IS_NUMBER(key))
+          return runtimeError("Expect a number value as index to array.\n");
+
+        if (array->arr.count -1 < AS_NUMBER(key) || AS_NUMBER(key) < 0)
+          return runtimeError("Index out of range.\n");
+
+        push(array->arr.values[(int)AS_NUMBER(key)]);
+      } else
+        return runtimeError("Only dict and arrays have subscript.\n");
+
     } BREAK;
     CASE(OP_GET_SUPER) {
       ObjString *name = READ_STRING();
@@ -359,8 +383,7 @@ static InterpretResult run() {
       ObjString *name = READ_STRING();
       if (tableSet(&vm.globals, name, peek(0))) {
         tableDelete(&vm.globals, name);
-        runtimeError("Undefined variable '%s'.", name->chars);
-        return INTERPRET_RUNTIME_ERROR;
+        return runtimeError("Undefined variable '%s'.", name->chars);
       }
       DBG_NEXT;
     } BREAK;
@@ -377,8 +400,7 @@ static InterpretResult run() {
       } else if (IS_INSTANCE(obj)) {
         tbl = &AS_INSTANCE(obj)->fields;
       } else {
-        runtimeError("Only instances and dict's have fields.");
-        return INTERPRET_RUNTIME_ERROR;
+        return runtimeError("Only instances and dict's have fields.");
       }
 
       tableSet(tbl, READ_STRING(), peek(0));
@@ -386,6 +408,29 @@ static InterpretResult run() {
       pop();
       push(value);
       DBG_NEXT;
+    } BREAK;
+    CASE(OP_SET_SUBSCRIPT) {
+      Value value = pop(), key = pop(), obj = pop();
+      if (IS_DICT(obj)) {
+        ObjDict *dict = AS_DICT(obj);
+        if (!IS_STRING(key))
+          return runtimeError("Expect a string value for key.");
+
+        tableSet(&dict->fields, AS_STRING(key), value);
+        push(value);
+
+      } else if (IS_ARRAY(obj)) {
+        ObjArray *array = AS_ARRAY(obj);
+        if (!IS_NUMBER(key))
+          return runtimeError("Expect a number value as index to array.\n");
+
+        if (array->arr.count -1 < AS_NUMBER(key) || AS_NUMBER(key) < 0)
+          return runtimeError("Index out of range.\n");
+
+        push(array->arr.values[(int)AS_NUMBER(key)]);
+      } else
+        return runtimeError("Only dict and arrays have subscript.\n");
+
     } BREAK;
     CASE(OP_EQUAL) {
       Value b = pop(), a = pop();
@@ -400,8 +445,7 @@ static InterpretResult run() {
       } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
         BINARY_OP(NUMBER_VAL, +);
       } else {
-        runtimeError("Operands must be two numbers or two strings.");
-        return INTERPRET_RUNTIME_ERROR;
+        return runtimeError("Operands must be two numbers or two strings.");
       }
       DBG_NEXT;
     } BREAK;
@@ -412,8 +456,7 @@ static InterpretResult run() {
       push(BOOL_VAL(isFalsey(pop()))); BREAK;
     CASE(OP_NEGATE)
       if (!IS_NUMBER(peek(0))) {
-        runtimeError("Operand must be a number.");
-        return INTERPRET_RUNTIME_ERROR;
+        return runtimeError("Operand must be a number.");
       }
       push(NUMBER_VAL(-AS_NUMBER(pop())));
       BREAK;
@@ -447,8 +490,7 @@ static InterpretResult run() {
       }
 
       if (vm.frameCount == FRAMES_MAX) {
-        runtimeError("Stack overflow.");
-        return false;
+        return runtimeError("Stack overflow.");
       }
 
       frame = &vm.frames[vm.frameCount -1];
@@ -514,10 +556,8 @@ static InterpretResult run() {
       BREAK;
     CASE(OP_INHERIT) {
       Value superClass = peek(1);
-      if (!IS_CLASS(superClass)) {
-        runtimeError("Superclass must be a class.");
-        return INTERPRET_RUNTIME_ERROR;
-      }
+      if (!IS_CLASS(superClass))
+        return runtimeError("Superclass must be a class.");
 
       ObjClass* subClass = AS_CLASS(peek(0));
       tableAddAll(&AS_CLASS(superClass)->methods,
