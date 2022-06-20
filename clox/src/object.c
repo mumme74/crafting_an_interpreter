@@ -16,39 +16,48 @@
 #define ALLOCATE_OBJ(type, objectType) \
   (type*)allocateObject(sizeof(type), objectType)
 
-// all objects inherit these
-static ObjPrototype
- *objBase = NULL, *objStringBase = NULL,
- *objArrayBase = NULL, *objDictBase = NULL;
-
 static Value objToStr(Value obj, int argCount, Value *args) {
   (void)argCount; (void)args;
   return OBJ_VAL((Obj*)objectToString(obj));
-}
-
-static Value getArrLen(Value obj) {
-  ObjArray *array = AS_ARRAY(obj);
-  return NUMBER_VAL(array->arr.count);
 }
 
 static Value getStrLen(Value obj) {
   return NUMBER_VAL(AS_STRING(obj)->length);
 }
 
-static Obj* allocateObject(size_t size, ObjType type) {
-  Obj *object = (Obj*)reallocate(NULL, 0, size);
-  object->type = type;
-  object->flags = 0;
-  object->prototype = objBase;
+static Value getStrAtIndex(Value obj, int argCount, Value *args) {
+  (void)argCount;
+  ObjString *str = AS_STRING(obj);
+  int idx = (int)AS_NUMBER(args[0]);
+  if (idx >= 0 && idx < str->length)
+    return OBJ_VAL((Obj*)copyString(str->chars + idx, 1));
+  return NIL_VAL;
+}
 
-  object->next = vm.infantObjects;
-  vm.infantObjects = object;
+static Value setStrAtIndex(Value obj, int argCount, Value *args) {
+  (void)argCount;
+  ObjString *str = AS_STRING(obj);
+  int idx = (int)AS_NUMBER(args[0]);
+  if (idx >= 0 && idx < str->length && IS_STRING(args[1]))
+    str->chars[idx] = AS_STRING(args[1])->chars[0];
+  return NIL_VAL;
+}
 
-#if DEBUG_LOG_GC_ALLOC
-  printf("%p allocate %zu for %s\n", (void*)object, size, typeOfObject(object));
-#endif
+static Value getDictWithKey(Value obj, int argCount, Value *args) {
+  (void)argCount;
+  ObjDict *dict = AS_DICT(obj);
+  ObjString *key = AS_STRING(args[0]);
+  Value value = NIL_VAL;
+  tableGet(&dict->fields, key, &value);
+  return value;
+}
 
-  return object;
+static Value setDictWithKey(Value obj, int argCount, Value *args) {
+  (void)argCount;
+  ObjDict *dict = AS_DICT(obj);
+  ObjString *key = AS_STRING(args[0]);
+  tableSet(&dict->fields, key, args[1]);
+  return args[1];
 }
 
 static ObjString *allocateString(char *chars, int length,
@@ -61,7 +70,7 @@ static ObjString *allocateString(char *chars, int length,
   string->obj.flags = GC_DONT_COLLECT;
   tableSet(&vm.strings, string, NIL_VAL);
   string->obj.flags = 0;
-  string->obj.prototype = objStringBase;
+  string->obj.prototype = objStringPrototype;
   return string;
 }
 
@@ -86,15 +95,6 @@ static int functionToString(char **pbuf, ObjFunction *function) {
     sprintf(*pbuf, "<fn %s>", function->name->chars);
   }
   return len;
-}
-
-static int arrayToString(char **pbuf, ObjArray *array) {
-  ObjString *tmp = joinValueArray(&array->arr, copyString(",", 1));
-  *pbuf = ALLOCATE(char, tmp->length +3);
-  **pbuf = '[';
-  memcpy((*pbuf)+1, tmp->chars, tmp->length);
-  memcpy((*pbuf)+1+tmp->length, "]\0", 2);
-  return tmp->length +2;
 }
 
 static int dictToString(char **pbuf, ObjDict *dict) {
@@ -140,35 +140,84 @@ static int dictToString(char **pbuf, ObjDict *dict) {
   return len;
 }
 
+typedef struct PrototypeList {
+  ObjPrototype *ptr;
+  struct PrototypeList *next;
+} PrototypeList;
+
+static PrototypeList *registeredTypes = NULL;
+
 // -----------------------------------------------------------
+
+// exported globally
+// all objects should inherit objPrototype
+ObjPrototype
+  *objPrototype = NULL,
+  *objStringPrototype = NULL,
+  *objDictPrototype = NULL;
 
 void initObjectsModule() {
   // base inheritance tabels
-  objBase       = newPrototype(NULL);
-  objStringBase = newPrototype(objBase);
-  objArrayBase  = newPrototype(objBase);
+  objPrototype       = newPrototype(NULL);
+  objStringPrototype = newPrototype(objPrototype);
+  objDictPrototype   = newPrototype(objPrototype);
 
-  // init objBase prototype
+  // init objPrototype prototype
   ObjString *toString_str = copyString("toString", 8);
   toString_str->obj.flags = GC_DONT_COLLECT;
-  tableSet(&objBase->methodsNative, toString_str,
+  tableSet(&objPrototype->methodsNative, toString_str,
            OBJ_VAL((Obj*)newNativeMethod(objToStr, toString_str, 0)));
 
-  // init array prototype
+  // init string prototype
   ObjString *length_str = copyString("length", 6);
   length_str->obj.flags = GC_DONT_COLLECT;
-  tableSet(&objArrayBase->propsNative, length_str,
-           OBJ_VAL((Obj*)newNativeProp(getArrLen, NULL, length_str)));
-
-  // init string prototype
-  tableSet(&objStringBase->propsNative, length_str,
+  tableSet(&objStringPrototype->propsNative, length_str,
           OBJ_VAL((Obj*)newNativeProp(getStrLen, NULL, length_str)));
+
+  ObjString *set_index_str = copyString("__setitem__", 11);
+  set_index_str->obj.flags = GC_DONT_COLLECT;
+  tableSet(&objStringPrototype->methodsNative, set_index_str,
+           OBJ_VAL((Obj*)newNativeMethod(setStrAtIndex, set_index_str, 2)));
+
+  ObjString *get_index_str = copyString("__getitem__", 11);
+  get_index_str->obj.flags = GC_DONT_COLLECT;
+  tableSet(&objStringPrototype->methodsNative, get_index_str,
+           OBJ_VAL((Obj*)newNativeMethod(getStrAtIndex, get_index_str, 1)));
+
+  tableSet(&objDictPrototype->methodsNative, set_index_str,
+           OBJ_VAL((Obj*)newNativeMethod(setDictWithKey, set_index_str, 2)));
+
+  tableSet(&objDictPrototype->methodsNative, get_index_str,
+           OBJ_VAL((Obj*)newNativeMethod(getDictWithKey, get_index_str, 1)));
+
 }
 
 void freeObjectsModule() {
-  objBase->obj.flags = 0;
-  objArrayBase->obj.flags = 0;
-  objStringBase->obj.flags = 0;
+  // free prototypes
+  PrototypeList *n = registeredTypes, *tmp;
+  while (n != NULL) {
+    n->ptr->obj.flags |= ~GC_DONT_COLLECT;
+    tmp = n;
+    n = n->next;
+    FREE(PrototypeList, tmp);
+  }
+  registeredTypes = NULL;
+}
+
+Obj* allocateObject(size_t size, ObjType type) {
+  Obj *object = (Obj*)reallocate(NULL, 0, size);
+  object->type = type;
+  object->flags = 0;
+  object->prototype = objPrototype;
+
+  object->next = vm.infantObjects;
+  vm.infantObjects = object;
+
+#if DEBUG_LOG_GC_ALLOC
+  printf("%p allocate %zu for %s\n", (void*)object, size, typeOfObject(object));
+#endif
+
+  return object;
 }
 
 ObjPrototype *newPrototype(ObjPrototype *inherits){
@@ -177,6 +226,15 @@ ObjPrototype *newPrototype(ObjPrototype *inherits){
   initTable(&objProt->methodsNative);
   initTable(&objProt->propsNative);
   objProt->prototype = inherits;
+
+  // store it so we can free it later
+  PrototypeList **prev = &registeredTypes,
+                 *regPtr = *prev ? *prev : NULL;
+  for (;regPtr != NULL; regPtr = regPtr->next)
+    prev = &regPtr->next;
+  *prev = ALLOCATE(PrototypeList, 1);
+  (*prev)->ptr = objProt;
+  // return it
   return objProt;
 }
 
@@ -188,13 +246,6 @@ ObjBoundMethod* newBoundMethod(Value reciever,
   bound->reciever = reciever;
   bound->methods = method;
   return bound;
-}
-
-ObjArray *newArray() {
-  ObjArray *array = ALLOCATE_OBJ(ObjArray, OBJ_ARRAY);
-  array->obj.prototype = objArrayBase;
-  initValueArray(&array->arr);
-  return array;
 }
 
 ObjDict *newDict() {
@@ -318,7 +369,7 @@ Value objPropNative(Obj *obj, ObjString *name) {
   Value ret;
   const ObjPrototype *p = obj->prototype;
   for (; p != NULL; p = p->prototype) {
-    if (tableGet((Table*)&p->prototype->propsNative, name, &ret))
+    if (tableGet((Table*)&p->propsNative, name, &ret))
       return ret;
   }
   return NIL_VAL;
@@ -365,8 +416,7 @@ ObjString *objectToString(Value value) {
     ret = copyString(buf, len);
    } break;
   case OBJ_ARRAY: {
-    len = arrayToString(&buf, AS_ARRAY(value));
-    ret = copyString(buf, len);
+    return AS_STRING(toStringArray(value));
   } break;
   case OBJ_DICT: {
     len = dictToString(&buf, AS_DICT(value));

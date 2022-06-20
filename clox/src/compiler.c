@@ -1144,20 +1144,20 @@ static void subscript(bool canAssign) {
     Chunk *chunk = currentChunk();
     emitBytes(chunk->code[getObjPos], chunk->code[getObjPos+1]);
     emitBytes(chunk->code[getExprPos], chunk->code[getExprPos+1]);
-    emitByte(OP_GET_SUBSCRIPT);
-    //emitByte(OP_GET_SUBSCRIPT);
+    emitByte(OP_GET_INDEXER);
+    //emitByte(OP_GET_INDEXER);
     expression();
     emitByte(mutateCode);
-    emitByte(OP_SET_SUBSCRIPT);
+    emitByte(OP_SET_INDEXER);
   } else if (canAssign && match(TOKEN_EQUAL)) {
     expression();
-    emitByte(OP_SET_SUBSCRIPT);
+    emitByte(OP_SET_INDEXER);
   } else if (match(TOKEN_LEFT_PAREN)) {
-    emitByte(OP_GET_SUBSCRIPT);
+    emitByte(OP_GET_INDEXER);
     uint8_t argCount = argumentList();
     emitBytes(OP_CALL, argCount);
   } else {
-    emitByte(OP_GET_SUBSCRIPT);
+    emitByte(OP_GET_INDEXER);
   }
 }
 

@@ -100,7 +100,7 @@ static bool callValue(Value callee, int argCount) {
     case OBJ_NATIVE_METHOD: {
       ObjNativeMethod *nativeMethod = AS_NATIVE_METHOD(callee);
       if (nativeMethod->arity != argCount) {
-        runtimeError("%s requires %d arguments.", nativeMethod->name, nativeMethod->arity);
+        runtimeError("%s requires %d arguments.", nativeMethod->name->chars, nativeMethod->arity);
         return false;
       }
       Value *args = vm.stackTop - argCount;
@@ -338,48 +338,39 @@ static InterpretResult run() {
     CASE(OP_GET_PROPERTY) {
       Table *tbl = NULL;
       Value obj = pop();
+      ObjString *name = READ_STRING();
       if (IS_DICT(obj)) {
         tbl = &AS_DICT(obj)->fields;
       } else if (IS_INSTANCE(obj)) {
         tbl = &AS_INSTANCE(obj)->fields;
-      } else {
-        return runtimeError("Only instances and dict's have fields.");
       }
 
-      ObjString *name = READ_STRING();
       Value value = NIL_VAL;
-      tableGet(tbl, name, &value);
-      push(value);
-
-      if (IS_INSTANCE(obj) &&
-          !bindMethod(AS_INSTANCE(obj)->klass, name))
-      {
-        return INTERPRET_RUNTIME_ERROR;
+      if (tbl && tableGet(tbl, name, &value)) {
+        push(value);
+        if (IS_INSTANCE(obj) &&
+            !bindMethod(AS_INSTANCE(obj)->klass, name))
+        {
+          return INTERPRET_RUNTIME_ERROR;
+        }
+      } else {
+        Value prop = objPropNative(AS_OBJ(obj), name);
+        if (!IS_NIL(prop) && AS_NATIVE_PROP(prop)->getFn)
+          value = AS_NATIVE_PROP(prop)->getFn(obj);
+        else
+          value = NIL_VAL;
+        push(value);
       }
 
     } BREAK;
-    CASE(OP_GET_SUBSCRIPT) {
+    CASE(OP_GET_INDEXER) {
       Value key = pop(), obj = pop();
-      if (IS_DICT(obj)) {
-        ObjDict *dict = AS_DICT(obj);
-        if (!IS_STRING(key))
-          return runtimeError("Expect a string value for key.");
-
-        if (tableGet(&dict->fields, AS_STRING(key), &obj)) {
-          push(obj);
-        }
-      } else if (IS_ARRAY(obj)) {
-        ObjArray *array = AS_ARRAY(obj);
-        if (!IS_NUMBER(key))
-          return runtimeError("Expect a number value as index to array.\n");
-
-        if (array->arr.count -1 < AS_NUMBER(key) || AS_NUMBER(key) < 0)
-          return runtimeError("Index out of range.\n");
-
-        push(array->arr.values[(int)AS_NUMBER(key)]);
-      } else
-        return runtimeError("Only dict and arrays have subscript.\n");
-
+      Value method = objMethodNative(AS_OBJ(obj), copyString("__getitem__", 11));
+      if (!IS_NIL(method)) {
+        push(AS_NATIVE_METHOD(method)->method(obj, 1, &key));
+      } else {
+        return runtimeError("Object can't use indexer [].\n");
+      }
     } BREAK;
     CASE(OP_GET_SUPER) {
       ObjString *name = READ_STRING();
@@ -415,44 +406,35 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_SET_PROPERTY) {
       Table *tbl = NULL;
-      Value obj = peek(1);
+      Value value = pop(), obj = pop();
+      ObjString *name = READ_STRING();
       if (IS_DICT(obj)) {
         tbl = &AS_DICT(obj)->fields;
       } else if (IS_INSTANCE(obj)) {
         tbl = &AS_INSTANCE(obj)->fields;
-      } else {
-        return runtimeError("Only instances and dict's have fields.");
       }
-
-      tableSet(tbl, READ_STRING(), peek(0));
-      Value value = pop();
-      pop();
-      push(value);
-      DBG_NEXT;
-    } BREAK;
-    CASE(OP_SET_SUBSCRIPT) {
-      Value value = pop(), key = pop(), obj = pop();
-      if (IS_DICT(obj)) {
-        ObjDict *dict = AS_DICT(obj);
-        if (!IS_STRING(key))
-          return runtimeError("Expect a string value for key.");
-
-        tableSet(&dict->fields, AS_STRING(key), value);
-        push(value);
-
-      } else if (IS_ARRAY(obj)) {
-        ObjArray *array = AS_ARRAY(obj);
-        if (!IS_NUMBER(key))
-          return runtimeError("Expect a number value as index to array.\n");
-
-        if (array->arr.count -1 < AS_NUMBER(key) || AS_NUMBER(key) < 0)
-          return runtimeError("Index out of range.\n");
-
-        array->arr.values[(int)AS_NUMBER(key)] = value;
+      if (tbl && !tableHasKey(tbl, name)) {
+        // lookup in prototype chain
+        Value prop = objPropNative(AS_OBJ(obj), name);
+        if (!IS_NIL(prop) && AS_NATIVE_PROP(prop)->setFn) {
+          AS_NATIVE_PROP(prop)->setFn(obj, &value);
+        } else
+          tableSet(tbl, name, value);
         push(value);
       } else
-        return runtimeError("Only dict and arrays have subscript.\n");
+        return runtimeError("Could not set '%s' to object.\n", name->chars);
 
+      DBG_NEXT;
+    } BREAK;
+    CASE(OP_SET_INDEXER) {
+      Value value = pop(), key = pop(), obj = pop();
+      Value method = objMethodNative(AS_OBJ(obj), copyString("__setitem__", 11));
+      if (!IS_NIL(method)) {
+        Value args[] = {key, value};
+        push(AS_NATIVE_METHOD(method)->method(obj, 2, args));
+      } else {
+        return runtimeError("Object can't use indexer [].\n");
+      }
     } BREAK;
     CASE(OP_EQUAL) {
       Value b = pop(), a = pop();
@@ -636,7 +618,7 @@ void initVM() {
 
   vm.initString = NULL;
   vm.initString = copyString("init", 4);
-  initObjectsModule();
+  initTypes();
   initDebugger();
 
   defineBuiltins();
@@ -655,6 +637,7 @@ void freeVM() {
   freeTable(&vm.strings);
   freeTable(&vm.globals);
   freeObjectsModule();
+  freeTypes();
 
   freeObjects();
 }

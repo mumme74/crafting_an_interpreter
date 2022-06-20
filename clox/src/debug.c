@@ -87,8 +87,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return byteInstruction("OP_GET_UPVALUE", chunk, offset);
   case OP_GET_PROPERTY:
     return constantInstruction("OP_GET_PROPERTY", chunk, offset);
-  case OP_GET_SUBSCRIPT:
-    return simpleInstruction("OP_GET_SUBSCRIPT", offset);
+  case OP_GET_INDEXER:
+    return simpleInstruction("OP_GET_INDEXER", offset);
   case OP_GET_SUPER:
     return constantInstruction("OP_GET_SUPER", chunk, offset);
   case OP_DEFINE_GLOBAL:
@@ -103,8 +103,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return byteInstruction("OP_SET_UPVALUE", chunk, offset);
   case OP_SET_PROPERTY:
     return constantInstruction("OP_SET_PROPERTY", chunk, offset);
-  case OP_SET_SUBSCRIPT:
-    return simpleInstruction("OP_SET_SUBSCRIPT", offset);
+  case OP_SET_INDEXER:
+    return simpleInstruction("OP_SET_INDEXER", offset);
   case OP_EQUAL:
     return simpleInstruction("OP_EQUAL", offset);
   case OP_GREATER:

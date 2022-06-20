@@ -4,7 +4,12 @@
 
 #include "common.h"
 #include "memory.h"
+#include "object.h"
 
+static char * const *largv = NULL;
+static int largc = 0;
+
+// --------------------------------------------------------------
 
 char *readFile(const char *path) {
   FILE* file = fopen(path, "rb");
@@ -43,7 +48,19 @@ bool fileExists(const char *path) {
 }
 
 void loxInit(int argc, char * const argv[]) {
-  (void)argc;
-  (void)argv;
+  largv = argv;
+  largc = argc;
+
+(void)largv;
+(void)largc;
+}
+
+void initTypes() {
   initObjectsModule();
+  initArrayModule();
+}
+
+void freeTypes() {
+  freeObjectsModule();
+  freeArrayModule();
 }

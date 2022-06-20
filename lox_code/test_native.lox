@@ -1,0 +1,8 @@
+print "test_native.lox\n";
+
+print clock();
+
+print "this is a string from number: " + str(clock()) + "\n";
+
+print num("12345"); print "\n";
+print num("adgbh");

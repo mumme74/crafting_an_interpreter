@@ -6,13 +6,16 @@
 #include "chunk.h"
 #include "table.h"
 
+// only use this to allocate Objects, not C primitives
+#define ALLOCATE_OBJ(type, objectType) \
+  (type*)allocateObject(sizeof(type), objectType)
+
 #define OBJ_TYPE(value)            (AS_OBJ(value)->type)
 #define OBJ_CAST(value)            (Obj*)(value)
 
 #define ID_IMPORT(value)           (isObjType(value, OBJ_IMPORT_LINK))
 #define IS_MODULE(value)           (isObjType(value, OBJ_MODULE))
 #define IS_BOUND_METHOD(value)     (isObjType(value, OBJ_BOUND_METHOD))
-#define IS_ARRAY(value)            (isObjType(value, OBJ_ARRAY))
 #define IS_DICT(value)             (isObjType(value, OBJ_DICT))
 #define IS_CLASS(value)            (isObjType(value, OBJ_CLASS))
 #define IS_CLOSURE(value)          (isObjType(value, OBJ_CLOSURE))
@@ -27,7 +30,6 @@
 #define AS_IMPORT(value)           ((ObjImportLink*)AS_OBJ(value))
 #define AS_MODULE(value)           ((ObjModule*)AS_OBJ(value))
 #define AS_BOUND_METHOD(value)     ((ObjBoundMethod*)AS_OBJ(value))
-#define AS_ARRAY(value)            ((ObjArray*)AS_OBJ(value))
 #define AS_DICT(value)             ((ObjDict*)AS_OBJ(value))
 #define AS_CLASS(value)            ((ObjClass*)AS_OBJ(value))
 #define AS_CLOSURE(value)          ((ObjClosure*)AS_OBJ(value))
@@ -175,17 +177,14 @@ typedef struct ObjDict {
   Table fields;
 } ObjDict;
 
-typedef struct ObjArray {
-  Obj obj;
-  ValueArray arr;
-} ObjArray;
 
 void initObjectsModule();
 void freeObjectsModule();
 
+Obj* allocateObject(size_t size, ObjType type);
+
 ObjPrototype   *newPrototype(ObjPrototype *inherits);
 ObjBoundMethod *newBoundMethod(Value reciever, ObjClosure *method);
-ObjArray       *newArray();
 ObjDict        *newDict();
 ObjClass       *newClass(ObjString *name);
 ObjClosure     *newClosure(ObjFunction *function);
@@ -213,6 +212,8 @@ ObjString      *quoteString(ObjString *valueStr);
 const char     *typeOfObject(Obj* object);
 // returns obj converted to string
 ObjString *objectToString(Value value);
+// lookups property in inheritance chain
+Value objPropNative(Obj *obj, ObjString *name);
 // lookups method in inheritance chain
 Value objMethodNative(Obj *obj, ObjString *name);
 
@@ -220,5 +221,12 @@ Value objMethodNative(Obj *obj, ObjString *name);
 static inline bool isObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }
+
+extern ObjPrototype
+  *objPrototype,
+  *objStringPrototype,
+  *objDictPrototype;
+
+#include "array.h"
 
 #endif // CLOX_OBJECT_H

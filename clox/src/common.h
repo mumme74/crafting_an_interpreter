@@ -35,4 +35,9 @@ bool fileExists(const char *path);
 // initalize things before initVM
 void loxInit(int argc, char * const argv[]);
 
+// initalize type system
+void initTypes();
+// free typesystem
+void freeTypes();
+
 #endif // COMMON_H
