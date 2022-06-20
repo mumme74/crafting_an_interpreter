@@ -32,4 +32,7 @@ char *readFile(const char *path);
 // checks if path exists as a file
 bool fileExists(const char *path);
 
+// initalize things before initVM
+void loxInit(int argc, char * const argv[]);
+
 #endif // COMMON_H

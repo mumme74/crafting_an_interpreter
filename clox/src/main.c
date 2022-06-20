@@ -104,6 +104,7 @@ int main(int argc, char * const argv[]) {
 
   DebugStates initDbgState = DBG_RUN;
   const char *initDebuggerCmds = NULL;
+  loxInit(argc, argv);
 
   if (argc == 1) {
     repl();

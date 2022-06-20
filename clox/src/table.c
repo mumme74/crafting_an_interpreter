@@ -91,6 +91,11 @@ bool tableSet(Table *table, ObjString *key, Value value) {
   return isNewKey;
 }
 
+bool tableHasKey(Table *table, ObjString *key) {
+  if (table->count == 0) return false;
+  return findEntry(table->entries, table->capacity, key)->key != NULL;
+}
+
 bool tableDelete(Table *table, ObjString *key) {
   if (table->count == 0) return false;
 

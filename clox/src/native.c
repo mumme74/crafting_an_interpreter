@@ -27,12 +27,18 @@ static Value toNumber(int argCount, Value *args) {
 
 void defineNativeFn(const char *name, NativeFn function, int arity) {
   ObjString *fnname = copyString(name, (int)strlen(name));
-  push(OBJ_VAL(OBJ_CAST(fnname)));
-  push(OBJ_VAL(OBJ_CAST(newNative(function, fnname, arity))));
-  tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
-  pop();
-  pop();
+  // new native should prevent GC from collect this one
+  ObjNativeFn *fun = newNativeFn(function, fnname, arity);
+  tableSet(&vm.globals, fnname, OBJ_VAL(OBJ_CAST(fun)));
 }
+
+// get/set for properties
+void defineNativeProp(Value obj, NativeFn function, Value *vlu) {
+
+}
+
+// method built in on objects
+void defineNativeFunProp(Value obj, NativeFn function, int arity);
 
 
 void defineBuiltins() {

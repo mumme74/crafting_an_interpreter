@@ -16,6 +16,25 @@
 #define ALLOCATE_OBJ(type, objectType) \
   (type*)allocateObject(sizeof(type), objectType)
 
+// cache string lookups
+static ObjString *toString_str = NULL,
+                 *length_str = NULL;
+static ObjNativeMethod *toString_nativeMethod = NULL;
+static ObjNativeProp *length_nativeProp = NULL;
+
+static Value objToStr(Value obj, int argCount, Value *args) {
+  (void)argCount; (void)args;
+  return OBJ_VAL((Obj*)objectToString(obj));
+}
+
+static void initObj(Obj* object) {
+  initTable(&object->propsNative);
+  initTable(&object->methodsNative);
+  ObjNativeMethod *toStrFn = toString_nativeMethod;
+  tableSet(&object->methodsNative, toString_str,
+           OBJ_VAL(OBJ_CAST(toStrFn)));
+}
+
 static Obj* allocateObject(size_t size, ObjType type) {
   Obj *object = (Obj*)reallocate(NULL, 0, size);
   object->type = type;
@@ -35,12 +54,14 @@ static ObjString *allocateString(char *chars, int length,
                                  uint32_t hash)
 {
   ObjString *string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+  initTable(&string->obj.methodsNative);
+  initTable(&string->obj.propsNative);
   string->length = length;
   string->chars = chars;
   string->hash = hash;
-  push(OBJ_VAL(OBJ_CAST(string))); // for GC
+  string->obj.flags = GC_DONT_COLLECT;
   tableSet(&vm.strings, string, NIL_VAL);
-  pop(); // for GC
+  string->obj.flags = 0;
   return string;
 }
 
@@ -121,11 +142,31 @@ static int dictToString(char **pbuf, ObjDict *dict) {
 
 // -----------------------------------------------------------
 
+void initObjectsModule() {
+  // flags dont collect must be set immidiatly
+  length_str = copyString("length", 6);
+  length_str->obj.flags = GC_DONT_COLLECT;
+
+  toString_str = copyString("toString", 8);
+  toString_str->obj.flags = GC_DONT_COLLECT;
+
+  // methods to objects
+  toString_nativeMethod = newNativeMethod(objToStr, toString_str, 0);
+  //length_nativeProp = newNativeProp("length")
+}
+
+void freeObjectsModule() {
+  length_str->obj.flags = 0;
+  toString_str->obj.flags = 0;
+  toString_nativeMethod->obj.flags = 0;
+}
+
 ObjBoundMethod* newBoundMethod(Value reciever,
                                ObjClosure* method)
 {
   ObjBoundMethod *bound =
     ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
+  initObj(&bound->obj);
   bound->reciever = reciever;
   bound->methods = method;
   return bound;
@@ -133,18 +174,21 @@ ObjBoundMethod* newBoundMethod(Value reciever,
 
 ObjArray *newArray() {
   ObjArray *array = ALLOCATE_OBJ(ObjArray, OBJ_ARRAY);
+  initObj(&array->obj);
   initValueArray(&array->arr);
   return array;
 }
 
 ObjDict *newDict() {
   ObjDict *dict = ALLOCATE_OBJ(ObjDict, OBJ_DICT);
+  initObj(&dict->obj);
   initTable(&dict->fields);
   return dict;
 }
 
 ObjClass *newClass(ObjString *name) {
   ObjClass *klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
+  initObj(&klass->obj);
   klass->name = name;
   initTable(&klass->methods);
   return klass;
@@ -158,6 +202,7 @@ ObjClosure *newClosure(ObjFunction *function) {
   }
 
   ObjClosure *closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+  initObj(&closure->obj);
   closure->function = function;
   closure->upvalues = upvalues;
   closure->upvalueCount = function->upvalueCount;
@@ -166,6 +211,7 @@ ObjClosure *newClosure(ObjFunction *function) {
 
 ObjFunction *newFunction() {
   ObjFunction *function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+  initObj(&function->obj);
   function->arity = 0;
   function->upvalueCount = 0;
   function->name = NULL;
@@ -175,21 +221,44 @@ ObjFunction *newFunction() {
 
 ObjInstance *newInstance(ObjClass *klass) {
   ObjInstance *instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
+  initObj(&instance->obj);
   instance->klass = klass;
   initTable(&instance->fields);
   return instance;
 }
 
-ObjNative *newNative(NativeFn function, ObjString *name, int arity) {
-  ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+ObjNativeFn *newNativeFn(NativeFn function, ObjString *name, int arity) {
+  ObjNativeFn* native = ALLOCATE_OBJ(ObjNativeFn, OBJ_NATIVE_FN);
+  initObj(&native->obj);
+  native->obj.flags = GC_DONT_COLLECT;
   native->function = function;
   native->arity = arity;
   native->name = name;
   return native;
 }
 
+ObjNativeProp *newNativeProp(NativeMethod getFn, NativeMethod setFn, ObjString *name) {
+  ObjNativeProp *prop = ALLOCATE_OBJ(ObjNativeProp, OBJ_NATIVE_PROP);
+  initObj(&prop->obj);
+  prop->obj.flags = GC_DONT_COLLECT;
+  prop->name = name;
+  prop->getFn = getFn;
+  prop->setFn = setFn;
+  return prop;
+}
+
+ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int arity) {
+  ObjNativeMethod *method = ALLOCATE_OBJ(ObjNativeMethod, OBJ_NATIVE_METHOD);
+  initObj(&method->obj);
+  method->arity = arity;
+  method->method = function;
+  method->name = name;
+  return method;
+}
+
 ObjUpvalue *newUpvalue(Value *slot) {
   ObjUpvalue *upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
+  initObj(&upvalue->obj);
   upvalue->closed = NIL_VAL;
   upvalue->location = slot;
   upvalue->next = NULL;
@@ -245,7 +314,9 @@ const char *typeOfObject(Obj* object) {
   case OBJ_CLOSURE:      return "closure";
   case OBJ_FUNCTION:     return "function";
   case OBJ_INSTANCE:     return "instance";
-  case OBJ_NATIVE:       return "function";
+  case OBJ_NATIVE_FN:    return "function";
+  case OBJ_NATIVE_METHOD:return "function";
+  case OBJ_NATIVE_PROP:  return "property";
   case OBJ_STRING:       return "string";
   case OBJ_UPVALUE:      return "upvalue";
   }
@@ -293,13 +364,27 @@ ObjString *objectToString(Value value) {
     sprintf(buf, "<%s instance>", instance->klass->name->chars);
     ret = copyString(buf, len);
   } break;
-  case OBJ_NATIVE: {
-    ObjNative *native = AS_NATIVE_OBJ(value);
+  case OBJ_NATIVE_FN: {
+    ObjNativeFn *native = AS_NATIVE_FN(value);
     len = native->name->length + 12;
     buf = ALLOCATE(char, len);
-    sprintf(buf, "<native fn %s>", AS_NATIVE_OBJ(value)->name->chars);
+    sprintf(buf, "<native fn %s>", AS_NATIVE_FN(value)->name->chars);
     ret = copyString(buf, len);
    } break;
+  case OBJ_NATIVE_PROP: {
+    ObjNativeProp *prop = AS_NATIVE_PROP(value);
+    len = prop->name->length +18;
+    buf = ALLOCATE(char, len);
+    sprintf(buf, "<native property %s>", prop->name->chars);
+    ret = copyString(buf, len);
+  } break;
+  case OBJ_NATIVE_METHOD: {
+    ObjNativeMethod *method = AS_NATIVE_METHOD(value);
+    len = method->name->length +16;
+    buf = ALLOCATE(char, len);
+    sprintf(buf, "<native method %s>", method->name->chars);
+    ret = copyString(buf, len);
+  } break;
   case OBJ_STRING:
     ret = AS_STRING(value); break;
   case OBJ_UPVALUE:

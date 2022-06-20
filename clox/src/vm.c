@@ -86,17 +86,31 @@ static bool callValue(Value callee, int argCount) {
     }
     case OBJ_CLOSURE:
       return call(AS_CLOSURE(callee), argCount);
-    case OBJ_NATIVE: {
-      ObjNative *nativeObj = AS_NATIVE_OBJ(callee);
-      if (nativeObj->arity != argCount) {
-        runtimeError("%s requires %d arguments.", nativeObj->name, nativeObj->arity);
+    case OBJ_NATIVE_FN: {
+      ObjNativeFn *nativeFn = AS_NATIVE_FN(callee);
+      if (nativeFn->arity != argCount) {
+        runtimeError("%s requires %d arguments.", nativeFn->name, nativeFn->arity);
         return false;
       }
-      Value result = nativeObj->function(argCount, vm.stackTop - argCount);
+      Value result = nativeFn->function(argCount, vm.stackTop - argCount);
       vm.stackTop -= argCount +1;
       push(result);
       return true;
     }
+    case OBJ_NATIVE_METHOD: {
+      ObjNativeMethod *nativeMethod = AS_NATIVE_METHOD(callee);
+      if (nativeMethod->arity != argCount) {
+        runtimeError("method requires %d arguments.", nativeMethod->arity);
+        return false;
+      }
+      Value *args = vm.stackTop - argCount;
+      Value obj = vm.stackTop[-argCount -1];
+      Value result = nativeMethod->method(obj, argCount, args);
+      vm.stackTop -= argCount +1;
+      push(result);
+      return true;
+    }
+    case OBJ_NATIVE_PROP:
     case OBJ_DICT: case OBJ_ARRAY:
     case OBJ_STRING: case OBJ_UPVALUE:
     case OBJ_INSTANCE: case OBJ_FUNCTION:
@@ -122,18 +136,23 @@ static bool invokeFromClass(ObjClass *klass, ObjString *name,
 
 static bool invoke(ObjString *name, int argCount) {
   Value reciever = peek(argCount);
-  Table *fields;
+  Table *fields = NULL;
+  Value value;
+
   if (IS_INSTANCE(reciever)) {
     fields = &AS_INSTANCE(reciever)->fields;
   } else if (IS_DICT(reciever)) {
     fields = &AS_DICT(reciever)->fields;
-  } else {
-    runtimeError("Only instances and dict can use invoke.");
+  }
+  // lookup at native built in properties
+  if (fields == NULL) {
+    if (tableGet(&AS_OBJ(reciever)->methodsNative, name, &value))
+      return callValue(value, argCount);
+
+    runtimeError("Method %s not found.", name->chars);
     return false;
   }
 
-
-  Value value;
   if (tableGet(fields, name, &value)) {
     vm.stackTop[-argCount -1] = value;
     return callValue(value, argCount);
@@ -616,6 +635,7 @@ void initVM() {
 
   vm.initString = NULL;
   vm.initString = copyString("init", 4);
+  initObjectsModule();
   initDebugger();
 
   defineBuiltins();
@@ -633,6 +653,7 @@ void freeVM() {
 
   freeTable(&vm.strings);
   freeTable(&vm.globals);
+  freeObjectsModule();
 
   freeObjects();
 }

@@ -18,7 +18,9 @@
 #define IS_CLOSURE(value)          (isObjType(value, OBJ_CLOSURE))
 #define IS_FUNCTION(value)         (isObjType(value, OBJ_FUNCTION))
 #define IS_INSTANCE(value)         (isObjType(value, OBJ_INSTANCE))
-#define IS_NATIVE(value)           (isObjType(value, OBJ_NATIVE))
+#define IS_NATIVE_FN(value)        (isObjType(value, OBJ_NATIVE_FN))
+#define IS_NATIVE_PROP(value)      (isObjType(value, OBJ_NATIVE_PROP))
+#define IS_NATIVE_METHOD(value)    (isObjType(value, OBJ_NATIVE_METHOD))
 #define IS_STRING(value)           (isObjType(value, OBJ_STRING))
 
 #define AS_IMPORT(value)           ((ObjImportLink*)AS_OBJ(value))
@@ -30,8 +32,9 @@
 #define AS_CLOSURE(value)          ((ObjClosure*)AS_OBJ(value))
 #define AS_FUNCTION(value)         ((ObjFunction*)AS_OBJ(value))
 #define AS_INSTANCE(value)         ((ObjInstance*)AS_OBJ(value))
-#define AS_NATIVE_OBJ(value)       ((ObjNative*)AS_OBJ(value))
-#define AS_NATIVE(value)           (AS_NATIVE_OBJ(value)->function)
+#define AS_NATIVE_FN(value)        ((ObjNativeFn*)AS_OBJ(value))
+#define AS_NATIVE_PROP(value)      ((ObjNativeProp*)AS_OBJ(value))
+#define AS_NATIVE_METHOD(value)    ((ObjNativeMethod*)AS_OBJ(value))
 #define AS_STRING(value)           ((ObjString*)AS_OBJ(value))
 #define AS_CSTRING(value)          (((ObjString*)AS_OBJ(value))->chars)
 
@@ -40,10 +43,11 @@
 
 
 // Object lags
-#define GC_FLAGS                   0x07
+#define GC_FLAGS                   0x08
 #define GC_IS_MARKED               0x01
 #define GC_IS_OLDER                0x02
 #define GC_IS_MARKED_OLDER         0x04
+#define GC_DONT_COLLECT            0x08
 
 typedef struct Module Module;
 
@@ -55,7 +59,9 @@ typedef enum {
   OBJ_CLOSURE,
   OBJ_FUNCTION,
   OBJ_INSTANCE,
-  OBJ_NATIVE,
+  OBJ_NATIVE_FN,
+  OBJ_NATIVE_PROP,
+  OBJ_NATIVE_METHOD,
   OBJ_STRING,
   OBJ_UPVALUE,
   //OBJ_MODULE,
@@ -65,6 +71,8 @@ typedef enum {
 struct Obj {
   ObjType type;
   ObjFlags flags;
+  Table propsNative,
+        methodsNative;
   struct Obj* next;
 };
 
@@ -77,13 +85,29 @@ typedef struct ObjFunction {
 } ObjFunction;
 
 typedef Value (*NativeFn)(int argCount, Value *args);
+typedef Value (*NativeProp)(Value obj, Value *vlu);
+typedef Value (*NativeMethod)(Value obj, int argCount, Value *args);
 
-typedef struct ObjNative {
+typedef struct ObjNativeFn {
   Obj obj;
   NativeFn function;
   ObjString *name;
   int arity;
-} ObjNative;
+} ObjNativeFn;
+
+typedef struct ObjNativeProp {
+  Obj obj;
+  NativeMethod getFn,
+               setFn;
+  ObjString *name;
+} ObjNativeProp;
+
+typedef struct ObjNativeMethod {
+  Obj obj;
+  NativeMethod method;
+  int arity;
+  ObjString *name;
+} ObjNativeMethod;
 
 struct ObjString {
   Obj obj;
@@ -144,6 +168,8 @@ typedef struct ObjArray {
   ValueArray arr;
 } ObjArray;
 
+void initObjectsModule();
+void freeObjectsModule();
 
 ObjBoundMethod *newBoundMethod(Value reciever, ObjClosure *method);
 ObjArray       *newArray();
@@ -152,7 +178,9 @@ ObjClass       *newClass(ObjString *name);
 ObjClosure     *newClosure(ObjFunction *function);
 ObjFunction    *newFunction();
 ObjInstance    *newInstance(ObjClass *klass);
-ObjNative      *newNative(NativeFn function, ObjString *name, int arity);
+ObjNativeFn    *newNativeFn(NativeFn function, ObjString *name, int arity);
+ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int arity);
+ObjNativeProp  *newNativeProp(NativeMethod getFn, NativeMethod setFn, ObjString *name);
 ObjUpvalue     *newUpvalue(Value *slot);
 
 ObjImportLink  *newImportLink(Value *fromModule, Value *exportName);

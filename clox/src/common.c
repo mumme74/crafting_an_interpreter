@@ -41,3 +41,9 @@ bool fileExists(const char *path) {
   }
   return false;
 }
+
+void loxInit(int argc, char * const argv[]) {
+  (void)argc;
+  (void)argv;
+  initObjectsModule();
+}
