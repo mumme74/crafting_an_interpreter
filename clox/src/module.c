@@ -9,6 +9,24 @@
 
 // ------------------------------------------------------
 
+void initModule(Module *module) {
+  module->closure = NULL;
+  module->source = NULL;
+  module->name = module->path = NULL;
+  module->rootFunction = NULL;
+  module->closure = NULL;
+  initTable(&module->exports);
+}
+
+void freeModule(Module *module) {
+  //FREE(ObjString, module->name);
+  //FREE(ObjString, module->path);
+  FREE_ARRAY(char, (char*)module->source, strlen(module->source));
+  //FREE(ObjClosure, module->closure);
+  //FREE(ObjFunction, module->rootFunction);
+  freeTable(&module->exports);
+}
+
 Module *createModule(const char *name, const char *path) {
   bool enabled = setGCenabled(false);
   Module *module = ALLOCATE(Module, 1);
@@ -51,16 +69,6 @@ InterpretResult interpretModule(Module *module) {
   return interpretVM(module);
 }
 
-/*
-InterpretResult interpretModuleEval(ObjFunction *function) {
-  bool enabled = setGCenabled(false);
-  ObjClosure *closure = newClosure(function);
-  push(OBJ_VAL(OBJ_CAST(closure)));
-  setGCenabled(enabled);
-  return interpretVMeval(closure);
-}
-*/
-
 InterpretResult loadModule(Module *module) {
   //vm.currentModule = module;
   const char *src = readFile(module->path->chars);
@@ -68,25 +76,50 @@ InterpretResult loadModule(Module *module) {
   if (!compileModule(module, src))
     return INTERPRET_COMPILE_ERROR;
 
-  return interpretModule(module);
+  int oldexitAtFrame = vm.exitAtFrame;
+  vm.exitAtFrame = vm.frameCount;
+  InterpretResult res = interpretModule(module);
+  vm.exitAtFrame = oldexitAtFrame;
+
+  return res;
 }
 
-void initModule(Module *module) {
-  module->closure = NULL;
-  module->source = NULL;
-  module->name = module->path = NULL;
-  module->rootFunction = NULL;
-  module->closure = NULL;
-  initTable(&module->exports);
+Value getModuleByPath(Value path) {
+  Module *mod = vm.modules;
+  for (; mod != NULL; mod = mod->next) {
+    if (valuesEqual(path, OBJ_VAL((Obj*)mod->path)))
+      return OBJ_VAL((Obj*)mod);
+  }
+
+  // not yet loaded
+  PathInfo pNfo = parsePath(AS_CSTRING(path));
+  if (fileExists(pNfo.path)) {
+    Module *mod = ALLOCATE(Module, 1);
+    initModule(mod);
+    addModuleVM(mod);
+    mod->path = copyString(pNfo.path, pNfo.pathLen);
+    mod->name = copyString(pNfo.basename, pNfo.basenameLen);
+    if (loadModule(mod) == INTERPRET_OK)
+      return OBJ_VAL((Obj*)newModule(mod));
+    // failed, remove from vm
+    delModuleVM(mod);
+  }
+
+  return NIL_VAL;
 }
 
-void freeModule(Module *module) {
-  //FREE(ObjString, module->name);
-  //FREE(ObjString, module->path);
-  FREE_ARRAY(char, (char*)module->source, strlen(module->source));
-  //FREE(ObjClosure, module->closure);
-  //FREE(ObjFunction, module->rootFunction);
-  freeTable(&module->exports);
+Value getModuleByName(Value name) {
+  Module *mod = vm.modules;
+  for (; mod != NULL; mod = mod->next) {
+    if (valuesEqual(OBJ_VAL((Obj*)mod->name), name)) {
+      ObjModule *omod = newModule(mod);
+      return OBJ_VAL((Obj*)omod);
+    }
+  }
+
+  ObjString *path = concatString(AS_STRING(name)->chars, "lox",
+                                 AS_STRING(name)->length, 3);
+  return getModuleByPath(OBJ_VAL((Obj*)path));
 }
 
 void markRootsModule(Module *module, ObjFlags flags) {

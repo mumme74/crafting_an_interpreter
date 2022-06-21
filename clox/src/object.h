@@ -15,6 +15,7 @@
 
 #define ID_IMPORT(value)           (isObjType(value, OBJ_IMPORT_LINK))
 #define IS_MODULE(value)           (isObjType(value, OBJ_MODULE))
+#define IS_IMPORT_LINK(value)      (isObjType(value, OBJ_IMPORT_LINK)
 #define IS_BOUND_METHOD(value)     (isObjType(value, OBJ_BOUND_METHOD))
 #define IS_DICT(value)             (isObjType(value, OBJ_DICT))
 #define IS_CLASS(value)            (isObjType(value, OBJ_CLASS))
@@ -29,6 +30,7 @@
 
 #define AS_IMPORT(value)           ((ObjImportLink*)AS_OBJ(value))
 #define AS_MODULE(value)           ((ObjModule*)AS_OBJ(value))
+#define AS_IMPORT_LINK(value)      ((ObjImportLink*)AS_OBJ(value))
 #define AS_BOUND_METHOD(value)     ((ObjBoundMethod*)AS_OBJ(value))
 #define AS_DICT(value)             ((ObjDict*)AS_OBJ(value))
 #define AS_CLASS(value)            ((ObjClass*)AS_OBJ(value))
@@ -70,8 +72,8 @@ typedef enum {
   OBJ_NATIVE_METHOD,
   OBJ_STRING,
   OBJ_UPVALUE,
-  //OBJ_MODULE,
-  //OBJ_IMPORT_LINK
+  OBJ_MODULE,
+  OBJ_IMPORT_LINK
 } ObjType;
 
 
@@ -169,7 +171,8 @@ typedef struct ObjModule {
 
 typedef struct ObjImportLink {
   Obj obj;
-  ObjModule *module;
+  ObjString *name;
+  Obj *link;
 } ObjImportLink;
 
 typedef struct ObjDict {
@@ -195,8 +198,8 @@ ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int ari
 ObjNativeProp  *newNativeProp(NativePropGet getFn, NativePropSet setFn, ObjString *name);
 ObjUpvalue     *newUpvalue(Value *slot);
 
-ObjImportLink  *newImportLink(Value *fromModule, Value *exportName);
-ObjModule      *newModule(Value *path);
+ObjImportLink  *newImportLink(ObjString *name);
+ObjModule      *newModule(Module *module);
 
 // takes chars intern them and return a ObjString
 // vm takes ownership of chars

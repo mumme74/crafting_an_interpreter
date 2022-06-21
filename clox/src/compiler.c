@@ -39,7 +39,11 @@ returnStmt     -> "return" expression? ";" ;
 whileStmt      -> "while" "(" expression ")" statment ;
 importStmt     -> "import" "{" importParam ("," importParam)* "}"
                      "from" STRING ";" ;
-exportStmt     -> "export" dictDecl ;
+exportStmt     -> "export" ( dictDecl
+                           | funDecl
+                           | classDecl
+                           | varDel
+                           | identifier ) ;
 block          -> "{" declaration* "}" ;
 
 importParam    -> IDENTIFIER ( "as" IDENTIFIER)*
@@ -142,7 +146,9 @@ static void initCompiler(Compiler *compiler, Module *module, FunctionType type);
 static void namedVariable(Token name, bool canAssign);
 static Token syntheticToken(const char* text);
 static void variable(bool canAssign);
+static int parseString(bool canAssign);
 static void string(bool canAssign);
+static void dict(bool canAssign);
 
 // set a new error at Token pos with error message
 static void errorAt(Token *token, const char *message) {
@@ -820,20 +826,31 @@ static void whileStatement() {
 // import {id1 as id} from "path.lox"
 static void importParam() {
   consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER in import statement.");
-  uint8_t name = identifierConstant(&parser.previous);
-  (void)name;
+  ObjString *name = copyString(parser.previous.start,
+                               parser.previous.length);
+  uint8_t nameIdx = makeConstant(OBJ_VAL((Obj*)name));
+  //ObjString *alias = name;
   if (check(TOKEN_AS)) {
     advance();
     consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER as alias.");
+    //alias = copyString(parser.previous.start,
+    //                   parser.previous.length);
   }
-  // FIXME implement
-  addLocal(parser.previous);
+  declareVariable();
+  uint8_t localIdx = current->localCount-1;
+  emitBytes(OP_IMPORT_LINK, localIdx);
+  emitByte(nameIdx);
 }
 
 // parses a import statement, ie:
 // import {id1 as id, id2} from "path.lox"
 static void importStatement() {
   consume(TOKEN_LEFT_BRACE, "Expect '{' after import.");
+  Chunk *chunk = currentChunk();
+  emitBytes(OP_CONSTANT, 0xff);
+  int stringPos = chunk->count-1;
+  emitByte(OP_IMPORT_MODULE);
+
   do {
     importParam();
     if (!check(TOKEN_COMMA)) break;
@@ -843,8 +860,33 @@ static void importStatement() {
   consume(TOKEN_RIGHT_BRACE, "Expect '}' in import statement.");
   consume(TOKEN_FROM, "Expect 'from' after import params.");
   advance();
-  string(false);
+  patchChunkPos(chunk, parseString(false), stringPos);
   consume(TOKEN_SEMICOLON, "Expect ';' after path.");
+}
+
+/*
+exportStmt     -> "export" ( dictDecl
+                           | funDecl
+                           | classDecl
+                           | identifier ) ;
+                           */
+static void exportStatment() {
+  advance();
+  switch (parser.previous.type) {
+  case TOKEN_LEFT_BRACE:
+    dict(false);
+    consume(TOKEN_SEMICOLON, "Expect ';' after export.\n");
+    break;
+  case TOKEN_FUN: funDeclaration(); break;
+  case TOKEN_CLASS: classDeclaration(); break;
+  case TOKEN_IDENTIFIER:
+    namedVariable(parser.previous,false);
+    consume(TOKEN_SEMICOLON, "Expect ';' after export.\n");
+    break;
+  default:
+    errorAt(&parser.previous, "Expect valid export. \n");
+  }
+  emitByte(OP_EXPORT);
 }
 
 // when a recoverable syntax error occurs,
@@ -919,6 +961,8 @@ static void statement() {
     whileStatement();
   } else if (match(TOKEN_IMPORT)) {
     importStatement();
+  } else if (match(TOKEN_EXPORT)) {
+    exportStatment();
   } else if (match(TOKEN_LEFT_BRACE)) {
     beginScope();
     block();
@@ -957,14 +1001,20 @@ static int escapeString(char *to, const char *from, int len) {
   return to - start;
 }
 
-// parse a string
-static void string(bool canAssign) {
+static int parseString(bool canAssign) {
   char *escStr = ALLOCATE(char, parser.previous.length-2);
   int len = escapeString(
     escStr, parser.previous.start+1, parser.previous.length-2);
 
-  emitConstant(OBJ_VAL(OBJ_CAST(copyString(escStr, len))));
+  uint8_t idx = makeConstant(OBJ_VAL(OBJ_CAST(copyString(escStr, len))));
   FREE_ARRAY(char, escStr, parser.previous.length-2);
+  return idx;
+}
+
+// parse a string
+static void string(bool canAssign) {
+  uint8_t idx = parseString(canAssign);
+  emitBytes(OP_CONSTANT, idx);
 }
 
 // returns which assigment set is used is: +=, -= ...

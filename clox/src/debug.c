@@ -175,6 +175,12 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return simpleInstruction("OP_DEFINE_ARRAY", offset);
   case OP_ARRAY_PUSH:
     return simpleInstruction("OP_ARRAY_PUSH", offset);
+  case OP_IMPORT_MODULE:
+    return constantInstruction("OP_IMPORT_MODULE", chunk, offset);
+  case OP_IMPORT_LINK:
+    return constantInstruction("OP_IMPORT_LINK", chunk, offset);
+  case OP_EXPORT:
+    return simpleInstruction("OP_EXPORT", offset);
   }
 
   printf("Unknown opcode %d\n", instruction);

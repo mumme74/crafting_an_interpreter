@@ -37,6 +37,16 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line) {
   ++chunk->count;
 }
 
+void patchChunkPos(Chunk *chunk, uint8_t byte, int pos) {
+  if (chunk->count > pos && pos > -1)
+    chunk->code[pos] = byte;
+}
+
+void patchChunkLine(Chunk *chunk, int line, int pos) {
+  if (chunk->count > pos && pos > -1)
+    chunk->lines[pos] = line;
+}
+
 int addConstant(Chunk *chunk, Value value) {
   // prevent to store twice
   for (int i = 0; i < chunk->constants.count; ++i) {

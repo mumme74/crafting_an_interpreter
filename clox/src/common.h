@@ -26,11 +26,26 @@
 
 typedef uint8_t ObjFlags;
 
+typedef struct PathInfo {
+  const char *path;
+  int pathLen;
+  const char *dirname;
+  int dirnameLen;
+  const char *basename;
+  int basenameLen;
+  const char *ext;
+  int extLen;
+  const char *filename;
+  int filenameLen;
+} PathInfo;
+
 // read contents of file at path, reciever tkaes overship over
 // ALLOCATE chars.
 char *readFile(const char *path);
 // checks if path exists as a file
 bool fileExists(const char *path);
+
+PathInfo parsePath(const char *path);
 
 // initalize things before initVM
 void loxInit(int argc, char * const argv[]);

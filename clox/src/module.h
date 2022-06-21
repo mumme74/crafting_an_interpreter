@@ -26,6 +26,9 @@ InterpretResult interpretModule(Module *module);
 // load from file at path into module
 InterpretResult loadModule(Module *module);
 
+Value getModuleByPath(Value path);
+Value getModuleByName(Value name);
+
 // init module
 void initModule(Module *module);
 // free module stuff

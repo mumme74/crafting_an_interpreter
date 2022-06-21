@@ -81,6 +81,8 @@ static void freeObject(Obj *object) {
   } break;
   case OBJ_UPVALUE:
     FREE(ObjUpvalue, object); break;
+  case OBJ_MODULE:
+    FREE(ObjModule, object); break;
   }
 }
 
@@ -131,6 +133,8 @@ static void blackenObject(Obj *object, ObjFlags flags) {
     markValue(((ObjUpvalue*)object)->closed, flags);
     break;
   case OBJ_STRING:
+    break;
+  case OBJ_MODULE:
     break;
   case OBJ_NATIVE_PROP: case OBJ_NATIVE_FN:
   case OBJ_NATIVE_METHOD: case OBJ_PROTOTYPE:

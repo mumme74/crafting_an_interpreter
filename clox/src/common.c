@@ -47,6 +47,42 @@ bool fileExists(const char *path) {
   return false;
 }
 
+
+PathInfo parsePath(const char *path) {
+  PathInfo pNfo = {0};
+  pNfo.path = path;
+  pNfo.pathLen = strlen(path);
+
+  const char *st = path,
+             *end = path + pNfo.pathLen,
+             *folderpos = st;
+  if (*folderpos == '/') folderpos++;
+
+  // get file ending
+  for (;end > st; --end) {
+    if (*end == '.') {
+      pNfo.ext = end+1;
+      pNfo.extLen = path + pNfo.pathLen - pNfo.ext;
+      break;
+    }
+  }
+  // get latest possible '/'
+  for (;st < end; ++st) {
+    if (*st == '/') {
+      pNfo.dirname = folderpos;
+      pNfo.dirnameLen = st - 1 -folderpos;
+      folderpos = st +1;
+    }
+  }
+
+  pNfo.basename = folderpos;
+  pNfo.basenameLen = st - folderpos;
+  pNfo.filename = folderpos;
+  pNfo.filenameLen = path + pNfo.pathLen - folderpos;
+
+  return pNfo;
+}
+
 void loxInit(int argc, char * const argv[]) {
   largv = argv;
   largc = argc;

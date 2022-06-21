@@ -56,7 +56,10 @@ typedef enum {
   OP_DEFINE_DICT,
   OP_DICT_FIELD,
   OP_DEFINE_ARRAY,
-  OP_ARRAY_PUSH
+  OP_ARRAY_PUSH,
+  OP_IMPORT_MODULE,
+  OP_IMPORT_LINK,
+  OP_EXPORT,
 } OpCode;
 
 typedef struct {
@@ -69,10 +72,17 @@ typedef struct {
   Compiler *compiler;
 } Chunk;
 
+// initializes code chunk
 void initChunk(Chunk *chunk);
+// free memeory from this chunk
 void freeChunk(Chunk *chunk);
+// write (add) a bytecode to chunk, line is line source
 void writeChunk(Chunk *chunk, uint8_t byte, int line);
+// patch (update) a bytecode at chunk in pos
+void patchChunkPos(Chunk *Chunk, uint8_t byte, int pos);
+// patch (upadate) a line for chunk in pos
+void patchChunkLine(Chunk *chunk, int line, int pos);
+// add a constant to chunk
 int addConstant(Chunk *chunk, Value value);
-
 
 #endif // CHUNK_H

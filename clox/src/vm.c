@@ -50,6 +50,42 @@ static InterpretResult runtimeError(const char *format, ...) {
   return INTERPRET_RUNTIME_ERROR;
 }
 
+static InterpretResult doExport() {
+  Value exportVlu = pop();
+  Module *curMod = getCurrentModule();
+  switch (AS_OBJ(exportVlu)->type) {
+  case OBJ_DICT: {
+    ValueArray keys = tableKeys(&AS_DICT(exportVlu)->fields);
+    ObjDict *dict = AS_DICT(exportVlu);
+    for (int i = 0; i < keys.count; ++i) {
+      Value key, value;
+      if (getValueArray(&keys, i, &key)) {
+        if (tableGet(&dict->fields, AS_STRING(key), &value))
+          tableSet(&curMod->exports, AS_STRING(key), value);
+      }
+    }
+  } break;
+  case OBJ_FUNCTION: {
+    ObjFunction *func = AS_FUNCTION(exportVlu);
+    tableSet(&curMod->exports, func->name, exportVlu);
+  } break;
+  case OBJ_CLOSURE: {
+    ObjClosure *closure = AS_CLOSURE(exportVlu);
+    tableSet(&curMod->exports, closure->function->name, exportVlu);
+  } break;
+  case OBJ_CLASS: {
+    ObjClass *class = AS_CLASS(exportVlu);
+    tableSet(&curMod->exports, class->name, exportVlu);
+  } break;
+  // FIXME support identifiers
+  //    Chunk *chunk = &vm.frames[vm.frameCount-1].closure->function->chunk;
+  default:
+    return runtimeError("Unrecognized export param.\n");
+  }
+
+  return INTERPRET_OK;
+}
+
 static bool call(ObjClosure *closure, int argCount) {
   if (argCount != closure->function->arity) {
     runtimeError("Expected %d arguments but got %d.",
@@ -114,6 +150,7 @@ static bool callValue(Value callee, int argCount) {
     case OBJ_DICT: case OBJ_ARRAY:
     case OBJ_STRING: case OBJ_UPVALUE:
     case OBJ_INSTANCE: case OBJ_FUNCTION:
+    case OBJ_MODULE: case OBJ_IMPORT_LINK:
      break; // non callable object type
     }
   }
@@ -248,8 +285,13 @@ static InterpretResult run() {
     printf("\n"); \
     disassembleInstruction(&frame->closure->function->chunk, \
         (int)(frame->ip - frame->closure->function->chunk.code))
+
+# define TRACE_MODULE_LOAD printf("==== load a module ====\n");
+# define TRACE_MODULE_LOADED printf("==== finished loading a module\n");
 #else
 # define TRACE_PRINT_EXECUTION
+# define TRACE_MODULE_LOAD
+# define TRACE_MODULE_LOADED
 #endif
 
 #define READ_BYTE() (*frame->ip++)
@@ -286,7 +328,7 @@ static InterpretResult run() {
     OP(OP_SUPER_INVOKE), OP(OP_CLOSURE), OP(OP_CLOSE_UPVALUE),
     OP(OP_RETURN), OP(OP_EVAL_EXIT), OP(OP_CLASS), OP(OP_INHERIT),
     OP(OP_METHOD), OP(OP_DEFINE_DICT), OP(OP_DICT_FIELD),
-    OP(OP_DEFINE_ARRAY), OP(OP_ARRAY_PUSH)
+    OP(OP_DEFINE_ARRAY), OP(OP_ARRAY_PUSH), OP(OP_IMPORT_MODULE)
   };
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
@@ -539,8 +581,8 @@ static InterpretResult run() {
       Value result = pop();
       closeUpvalues(frame->slots);
       vm.frameCount--;
-      if (vm.frameCount == 0) {
-        // exit interpreter
+      if (vm.frameCount == vm.exitAtFrame) {
+        // exit interpreter or the module imported
         pop();
         return INTERPRET_OK;
       }
@@ -591,6 +633,20 @@ static InterpretResult run() {
       pushValueArray(array, pop());
       DBG_NEXT;
     } BREAK;
+    CASE(OP_IMPORT_MODULE) {
+      TRACE_MODULE_LOAD
+      Value module = getModuleByPath(pop());
+      TRACE_MODULE_LOADED
+      push(module);
+      DBG_NEXT;
+    } BREAK;
+    CASE(OP_IMPORT_LINK) {
+      uint8_t name = READ_BYTE();
+      Value mod = peek(0);
+
+    } BREAK;
+    CASE(OP_EXPORT)
+      doExport();
     }
   }
 #undef READ_BYTE
@@ -603,7 +659,6 @@ static InterpretResult run() {
 
 // -------------------------------------------------------
 
-
 void initVM() {
   initTable(&vm.strings);
   initTable(&vm.globals);
@@ -613,7 +668,7 @@ void initVM() {
   vm.olderBytesAllocated = 0;
   vm.infantNextGC = INFANT_GC_MIN;
   vm.olderNextGC = OLDER_GC_MIN;
-  vm.frameCount = 0;
+  vm.frameCount = vm.exitAtFrame = 0;
   vm.modules = NULL;
 
   vm.initString = NULL;

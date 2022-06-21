@@ -325,6 +325,19 @@ ObjUpvalue *newUpvalue(Value *slot) {
   return upvalue;
 }
 
+ObjModule *newModule(Module *module) {
+  ObjModule *objModule = ALLOCATE_OBJ(ObjModule, OBJ_MODULE);
+  objModule->module = module;
+  return objModule;
+}
+
+ObjImportLink *newImportLink(ObjString *name) {
+  ObjImportLink *impLink = ALLOCATE_OBJ(ObjImportLink, OBJ_IMPORT_LINK);
+  impLink->name = name;
+  impLink->link = NULL;
+  return impLink;
+}
+
 ObjString *takeString(char *chars, int length) {
   uint32_t hash = hashString(chars, length);
   ObjString *interned = tableFindString(&vm.strings, chars, length, hash);
@@ -401,6 +414,7 @@ const char *typeOfObject(Obj* object) {
   case OBJ_STRING:       return "string";
   case OBJ_UPVALUE:      return "upvalue";
   case OBJ_PROTOTYPE:    return "prototype";
+  case OBJ_MODULE:       return "module";
   }
   return "undefined";
 }
@@ -440,31 +454,31 @@ ObjString *objectToString(Value value) {
   } break;
   case OBJ_INSTANCE: {
     ObjInstance *instance = AS_INSTANCE(value);
-    len = instance->klass->name->length + 11;
+    len = instance->klass->name->length + 12;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<%s instance>", instance->klass->name->chars);
-    ret = copyString(buf, len);
+    ret = copyString(buf, len-1);
   } break;
   case OBJ_NATIVE_FN: {
     ObjNativeFn *native = AS_NATIVE_FN(value);
-    len = native->name->length + 12;
+    len = native->name->length + 13;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<native fn %s>", AS_NATIVE_FN(value)->name->chars);
-    ret = copyString(buf, len);
+    ret = copyString(buf, len-1);
    } break;
   case OBJ_NATIVE_PROP: {
     ObjNativeProp *prop = AS_NATIVE_PROP(value);
-    len = prop->name->length +18;
+    len = prop->name->length +19;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<native property %s>", prop->name->chars);
-    ret = copyString(buf, len);
+    ret = copyString(buf, len-1);
   } break;
   case OBJ_NATIVE_METHOD: {
     ObjNativeMethod *method = AS_NATIVE_METHOD(value);
-    len = method->name->length +16;
+    len = method->name->length +17;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<native method %s>", method->name->chars);
-    ret = copyString(buf, len);
+    ret = copyString(buf, len-1);
   } break;
   case OBJ_STRING:
     ret = AS_STRING(value); break;
@@ -472,6 +486,13 @@ ObjString *objectToString(Value value) {
     ret = copyString("<upvalue>", 9); break;
   case OBJ_PROTOTYPE:
     ret = copyString("<prototype>", 11); break;
+  case OBJ_MODULE: {
+    ObjModule *mod = AS_MODULE(value);
+    len = mod->module->name->length + 12;
+    buf = ALLOCATE(char, len);
+    sprintf(buf, "<module %s>", mod->module->name->chars);
+    ret = copyString(buf, len-1);
+  } break;
   }
 
   if (buf != NULL)
