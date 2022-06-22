@@ -316,7 +316,6 @@ static InterpretResult run() {
 
 
   uint8_t instruction;
-  Value *entryStackPtr = vm.stackTop-1;
   ObjModule *importModule = NULL;
 
   for(;;) {
@@ -561,13 +560,12 @@ static InterpretResult run() {
       Value result = pop();
       closeUpvalues(frame->slots);
       vm.frameCount--;
+      vm.stackTop = frame->slots;
       if (vm.frameCount == vm.exitAtFrame) {
         // exit interpreter or the module imported
-        vm.stackTop = entryStackPtr;
         return INTERPRET_OK;
       }
 
-      vm.stackTop = frame->slots;
       push(result);
       DBG_NEXT;
       frame = &vm.frames[vm.frameCount -1];
