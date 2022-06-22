@@ -83,6 +83,8 @@ static void freeObject(Obj *object) {
     FREE(ObjUpvalue, object); break;
   case OBJ_MODULE:
     FREE(ObjModule, object); break;
+  case OBJ_REFERENCE:
+    FREE(ObjReference, object); break;
   }
 }
 
@@ -132,10 +134,17 @@ static void blackenObject(Obj *object, ObjFlags flags) {
   case OBJ_UPVALUE:
     markValue(((ObjUpvalue*)object)->closed, flags);
     break;
-  case OBJ_STRING:
+  case OBJ_STRING: // strings are interned
     break;
   case OBJ_MODULE:
     break;
+  case OBJ_REFERENCE: {
+    // weak ref to ObjModule
+    ObjReference *ref = (ObjReference*)object;
+    markObject((Obj*)ref->mod, flags);
+    markObject((Obj*)ref->name, flags);
+    markObject((Obj*)ref->closure, flags);
+   } break;
   case OBJ_NATIVE_PROP: case OBJ_NATIVE_FN:
   case OBJ_NATIVE_METHOD: case OBJ_PROTOTYPE:
     break; // should never get GC'd

@@ -20,6 +20,7 @@ VM vm; // global
 
 static bool failOnRuntimeErr = false;
 
+
 static void resetStack() {
   vm.stackTop = vm.stack;
   vm.frameCount = 0;
@@ -48,42 +49,6 @@ static InterpretResult runtimeError(const char *format, ...) {
 
   resetStack();
   return INTERPRET_RUNTIME_ERROR;
-}
-
-static InterpretResult doExport() {
-  Value exportVlu = pop();
-  Module *curMod = getCurrentModule();
-  switch (AS_OBJ(exportVlu)->type) {
-  case OBJ_DICT: {
-    ValueArray keys = tableKeys(&AS_DICT(exportVlu)->fields);
-    ObjDict *dict = AS_DICT(exportVlu);
-    for (int i = 0; i < keys.count; ++i) {
-      Value key, value;
-      if (getValueArray(&keys, i, &key)) {
-        if (tableGet(&dict->fields, AS_STRING(key), &value))
-          tableSet(&curMod->exports, AS_STRING(key), value);
-      }
-    }
-  } break;
-  case OBJ_FUNCTION: {
-    ObjFunction *func = AS_FUNCTION(exportVlu);
-    tableSet(&curMod->exports, func->name, exportVlu);
-  } break;
-  case OBJ_CLOSURE: {
-    ObjClosure *closure = AS_CLOSURE(exportVlu);
-    tableSet(&curMod->exports, closure->function->name, exportVlu);
-  } break;
-  case OBJ_CLASS: {
-    ObjClass *class = AS_CLASS(exportVlu);
-    tableSet(&curMod->exports, class->name, exportVlu);
-  } break;
-  // FIXME support identifiers
-  //    Chunk *chunk = &vm.frames[vm.frameCount-1].closure->function->chunk;
-  default:
-    return runtimeError("Unrecognized export param.\n");
-  }
-
-  return INTERPRET_OK;
 }
 
 static bool call(ObjClosure *closure, int argCount) {
@@ -150,7 +115,7 @@ static bool callValue(Value callee, int argCount) {
     case OBJ_DICT: case OBJ_ARRAY:
     case OBJ_STRING: case OBJ_UPVALUE:
     case OBJ_INSTANCE: case OBJ_FUNCTION:
-    case OBJ_MODULE: case OBJ_IMPORT_LINK:
+    case OBJ_MODULE: case OBJ_REFERENCE:
      break; // non callable object type
     }
   }
@@ -328,8 +293,10 @@ static InterpretResult run() {
     OP(OP_SUPER_INVOKE), OP(OP_CLOSURE), OP(OP_CLOSE_UPVALUE),
     OP(OP_RETURN), OP(OP_EVAL_EXIT), OP(OP_CLASS), OP(OP_INHERIT),
     OP(OP_METHOD), OP(OP_DEFINE_DICT), OP(OP_DICT_FIELD),
-    OP(OP_DEFINE_ARRAY), OP(OP_ARRAY_PUSH), OP(OP_IMPORT_MODULE)
+    OP(OP_DEFINE_ARRAY), OP(OP_ARRAY_PUSH), OP(OP_IMPORT_MODULE),
+    OP(OP_IMPORT_VARIABLE), OP(OP_EXPORT)
   };
+  assert(sizeof(labels) / sizeof(labels[0])==_OP_END);
 # define BREAK \
   TRACE_PRINT_EXECUTION; \
   /* for single step */ \
@@ -635,18 +602,34 @@ static InterpretResult run() {
     } BREAK;
     CASE(OP_IMPORT_MODULE) {
       TRACE_MODULE_LOAD
-      Value module = getModuleByPath(pop());
+      Value path = READ_CONSTANT();
+      Value module = getModuleByPath(path);
       TRACE_MODULE_LOADED
+      if (IS_NIL(module))
+        return runtimeError("Failed to load script from: %s\n", AS_CSTRING(path));
       push(module);
       DBG_NEXT;
     } BREAK;
-    CASE(OP_IMPORT_LINK) {
-      uint8_t name = READ_BYTE();
-      Value mod = peek(0);
-
+    CASE(OP_IMPORT_VARIABLE) {
+      ObjString *nameInExport = AS_STRING(READ_CONSTANT());
+      uint8_t   varIdx = READ_BYTE(); (void)varIdx; // used to disassemble properly
+      ObjModule *mod = AS_MODULE(peek(0));
+      Value ref;
+      if (!tableGet(&mod->module->exports, nameInExport, &ref)) {
+        return runtimeError("%s is not exported from %s.\n",
+                            nameInExport->chars, mod->module->name->chars);
+      }
+      push(ref);
     } BREAK;
-    CASE(OP_EXPORT)
-      doExport();
+    CASE(OP_EXPORT) {
+      ObjString *ident = AS_STRING(READ_CONSTANT());
+      Value ref;
+      if (tableGet(&frame->closure->function->chunk.module->exports,
+                   ident, &ref))
+      {
+        AS_REFERENCE(ref)->closure = frame->closure;
+      }
+    }
     }
   }
 #undef READ_BYTE
@@ -845,4 +828,23 @@ Value pop() {
 
 Value peek(int distance) {
   return vm.stackTop[-1 - distance];
+}
+
+
+Value refGetGlbl(ObjReference *ref) {
+  Value value;
+  tableGet(&vm.globals, ref->name, &value);
+  return value;
+}
+
+void refSetGlbl(ObjReference *ref, Value value) {
+  tableSet(&vm.globals, ref->name, value);
+}
+
+Value refGetUpvlu(ObjReference *ref) {
+  return *ref->closure->upvalues[ref->index]->location;
+}
+
+void refSetUpvlu(ObjReference *ref, Value value) {
+  *ref->closure->upvalues[ref->index]->location = value;
 }

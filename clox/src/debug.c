@@ -31,8 +31,7 @@ static int constantInstruction(const char *name, Chunk *chunk,
 {
   uint8_t constant = chunk->code[offset + 1];
   printf("%-16s %4d '", name, constant);
-  valueToString(chunk->constants.values[constant]);
-  printf("'\n");
+  printf("%s\n",valueToString(chunk->constants.values[constant])->chars);
   return offset + 2;
 }
 
@@ -42,8 +41,17 @@ static int invokeInstruction(const char *name, Chunk *chunk,
   uint8_t constant = chunk->code[offset +1],
           argCount = chunk->code[offset +2];
   printf("%-16s (%d args) %4d '", name, argCount, constant);
-  valueToString(chunk->constants.values[constant]);
-  printf("'\n");
+  printf("%s\n", valueToString(chunk->constants.values[constant])->chars);
+  return offset +3;
+}
+
+static int importInstruction(const char *name, Chunk *chunk, int offset) {
+  uint8_t nameInExport = chunk->code[offset +1],
+          varIdx       = chunk->code[offset +2];
+  printf("%-16s (%s) -> (%s) ", name,
+         AS_CSTRING(chunk->constants.values[nameInExport]),
+         AS_CSTRING(chunk->constants.values[varIdx]));
+  printf("\n");
   return offset +3;
 }
 
@@ -177,10 +185,15 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return simpleInstruction("OP_ARRAY_PUSH", offset);
   case OP_IMPORT_MODULE:
     return constantInstruction("OP_IMPORT_MODULE", chunk, offset);
-  case OP_IMPORT_LINK:
-    return constantInstruction("OP_IMPORT_LINK", chunk, offset);
+  case OP_IMPORT_VARIABLE:
+    return importInstruction("OP_IMPORT_VARIABLE", chunk, offset);
   case OP_EXPORT:
-    return simpleInstruction("OP_EXPORT", offset);
+    return constantInstruction("OP_EXPORT", chunk, offset);
+
+  case _OP_END:
+    printf("_OP_END it's a bug if this text shows!!\n");
+    return offset;
+
   }
 
   printf("Unknown opcode %d\n", instruction);

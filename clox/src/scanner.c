@@ -31,6 +31,22 @@ static char advance() {
   return scanner.current[-1];
 }
 
+Token scanPeek(uint8_t distance) {
+  const char *oldCur = scanner.current,
+             *oldStart = scanner.start;
+  int oldLine = scanner.line;
+
+  for (int i = 0; i < distance-1 && !isAtEnd(); ++i)
+    scanToken();
+  Token tok = scanToken();
+
+  scanner.current = oldCur;
+  scanner.start = oldStart;
+  scanner.line = oldLine;
+
+  return tok;
+}
+
 static Token makeToken(TokenType type) {
   Token token;
   token.type = type;
@@ -126,7 +142,7 @@ static Token string() {
   char c;
   while((c = peek()) != '"' && !isAtEnd()) {
     switch(c) {
-    case '\n': ++scanner.line; break;
+    case '\n': ++scanner.line; advance(); break;
     case '\\':
       if (peekNext() == '"') scanner.current += 2;
       // fall through

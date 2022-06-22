@@ -44,6 +44,8 @@ Token scanToken();
 void scannerStashPush();
 // restore scanner to saved state
 bool scannerStashPop();
+// peek forward, but don't advance
+Token scanPeek(uint8_t distance);
 
 extern const char *keywords[];
 extern const size_t keywordCnt;

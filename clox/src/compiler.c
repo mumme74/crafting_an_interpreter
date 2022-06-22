@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdarg.h>
 
 #include "common.h"
 #include "compiler.h"
@@ -76,6 +77,13 @@ primary        -> "true" | "false" | "nil"
 #ifdef DEBUG_PRINT_CODE
 # include "debug.h"
 #endif
+
+// defined in vm.c, but not exported, don't want to pollute
+// used as get/set functions for ObjReference
+extern Value refGetGlbl(ObjReference *ref);
+extern void refSetGlbl(ObjReference *ref, Value value);
+extern Value refGetUpvlu(ObjReference *ref);
+extern void refSetUpvlu(ObjReference *ref, Value value);
 
 typedef struct Parser {
   Token current,
@@ -170,13 +178,23 @@ static void errorAt(Token *token, const char *message) {
 }
 
 // same as error, but at current pos instead
-static void errorAtCurrent(const char *message) {
-  errorAt(&parser.current, message);
+static void errorAtCurrent(const char *message, ...) {
+  va_list args;
+  va_start(args, message);
+  char buf[2048] = {0};
+  vsnprintf(buf, 2047, message, args);
+  errorAt(&parser.current, buf);
+  va_end(args);
 }
 
 // set a new error at previous pos
-static void error(const char *message) {
-  errorAt(&parser.previous, message);
+static void error(const char *message, ...) {
+  va_list args;
+  va_start(args, message);
+  char buf[2048] = {0};
+  vsnprintf(buf, 2047, message, args);
+  errorAt(&parser.previous, buf);
+  va_end(args);
 }
 
 // returns the currently used chunk
@@ -358,6 +376,27 @@ static void addLocal(Token name) {
   local->isCaptured = false;
 }
 
+// lookup variable and set access operators used to retrieve varable
+static int variableAccessOp(Token *name, uint8_t *getOp,
+                             uint8_t *setOp)
+{
+  int arg = resolveLocal(current, name);
+  if (arg != -1) {
+    *getOp = OP_GET_LOCAL;
+    *setOp = OP_SET_LOCAL;
+  } else if ((arg = resolveUpValue(current, name)) != -1) {
+    *getOp = OP_GET_UPVALUE;
+    *setOp = OP_SET_UPVALUE;
+  } else if ((arg = identifierConstant(name)) != -1) {
+    *getOp = OP_GET_GLOBAL;
+    *setOp = OP_SET_GLOBAL;
+  } else {
+    *getOp = *setOp = 0xFF;
+    return -1;
+  }
+  return arg;
+}
+
 // declare a new variable ie: var tmp;
 static void declareVariable() {
   if (current->scopeDepth == 0) return;
@@ -407,7 +446,7 @@ static uint8_t parseVariable(const char *errorMessage) {
   return identifierConstant(&parser.previous);
 }
 
-// mark a verable as initialized
+// mark a variable as initialized
 static void markInitialized() {
   if (current->scopeDepth == 0) return;
   current->locals[current->localCount -1].depth =
@@ -825,21 +864,25 @@ static void whileStatement() {
 // parses a import param ie: id1 as id in
 // import {id1 as id} from "path.lox"
 static void importParam() {
-  consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER in import statement.");
-  ObjString *name = copyString(parser.previous.start,
-                               parser.previous.length);
-  uint8_t nameIdx = makeConstant(OBJ_VAL((Obj*)name));
+  uint8_t nameInExport = identifierConstant(&parser.current);
+
   //ObjString *alias = name;
-  if (check(TOKEN_AS)) {
-    advance();
-    consume(TOKEN_IDENTIFIER, "Expect IDENTIFIER as alias.");
-    //alias = copyString(parser.previous.start,
-    //                   parser.previous.length);
+  if (scanPeek(1).type == TOKEN_AS) {
+    advance(); advance();
   }
-  declareVariable();
-  uint8_t localIdx = current->localCount-1;
-  emitBytes(OP_IMPORT_LINK, localIdx);
-  emitByte(nameIdx);
+
+  Token identToken = parser.current;
+  parseVariable("Expect IDENTIFIER in import statement.\n");
+  markInitialized();
+  uint8_t getOp, setOp;
+  int varIdx = variableAccessOp(&identToken, &getOp, &setOp);
+  //ObjString *ident = copyString(identToken.start, identToken.length);
+  emitByte(OP_IMPORT_VARIABLE);
+  emitBytes(nameInExport, varIdx);
+  if (getOp == OP_GET_GLOBAL)
+    emitBytes(OP_DEFINE_GLOBAL, nameInExport);
+  else
+    emitBytes(OP_SET_LOCAL, varIdx);
 }
 
 // parses a import statement, ie:
@@ -847,9 +890,8 @@ static void importParam() {
 static void importStatement() {
   consume(TOKEN_LEFT_BRACE, "Expect '{' after import.");
   Chunk *chunk = currentChunk();
-  emitBytes(OP_CONSTANT, 0xff);
+  emitBytes(OP_IMPORT_MODULE, 0xff);
   int stringPos = chunk->count-1;
-  emitByte(OP_IMPORT_MODULE);
 
   do {
     importParam();
@@ -862,6 +904,40 @@ static void importStatement() {
   advance();
   patchChunkPos(chunk, parseString(false), stringPos);
   consume(TOKEN_SEMICOLON, "Expect ';' after path.");
+  emitByte(OP_POP);
+}
+
+static void exportIdentifier(Token *identToken) {
+  uint8_t getOp, setOp;
+  int idx = variableAccessOp(identToken, &getOp, &setOp);
+  if (idx < 0) {
+    char buf[100] = {0};
+    memcpy(buf, identToken->start, identToken->length);
+    error("Identifier '%s' not found.\n", buf);
+    parser.panicMode = true;
+    return;
+  }
+  ObjString *ident = copyString(identToken->start,
+                                identToken->length);
+  int identIdx = identifierConstant(identToken);
+  ObjModule *mod = newModule(current->function->chunk.module);
+  ObjReference *ref;
+  if (getOp == OP_GET_GLOBAL) {
+    ref = newReference(ident, mod,
+                       idx, &current->function->chunk,
+                       refGetGlbl, refSetGlbl);
+  } else {
+    idx = resolveUpValue(current, identToken);
+    emitBytes(OP_CLOSE_UPVALUE, idx);
+    ref = newReference(ident, mod,
+                       idx, &current->function->chunk,
+                       refGetUpvlu, refSetUpvlu);
+  }
+
+  tableSet(&current->function->chunk.module->exports,
+           ident, OBJ_VAL(ref));
+  emitBytes(OP_EXPORT, identIdx);
+  advance();
 }
 
 /*
@@ -870,23 +946,30 @@ exportStmt     -> "export" ( dictDecl
                            | classDecl
                            | identifier ) ;
                            */
-static void exportStatment() {
+static void exportDeclaration(int depth) {
   advance();
+  Token identToken = parser.current;;
   switch (parser.previous.type) {
-  case TOKEN_LEFT_BRACE:
-    dict(false);
-    consume(TOKEN_SEMICOLON, "Expect ';' after export.\n");
+  case TOKEN_LEFT_BRACE: // begin {...} exports
+    while (check(TOKEN_IDENTIFIER)) {
+      exportIdentifier(&parser.current);
+      if (check(TOKEN_COMMA)) advance();
+    }
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after export list.\n");
     break;
-  case TOKEN_FUN: funDeclaration(); break;
-  case TOKEN_CLASS: classDeclaration(); break;
+  case TOKEN_FUN:
+    funDeclaration();
+    exportIdentifier(&identToken);
+    break;
+  case TOKEN_CLASS:
+    classDeclaration();
+    exportIdentifier(&identToken);
+    break;
   case TOKEN_IDENTIFIER:
-    namedVariable(parser.previous,false);
-    consume(TOKEN_SEMICOLON, "Expect ';' after export.\n");
-    break;
+    exportIdentifier(&parser.previous); break;
   default:
     errorAt(&parser.previous, "Expect valid export. \n");
   }
-  emitByte(OP_EXPORT);
 }
 
 // when a recoverable syntax error occurs,
@@ -905,6 +988,8 @@ static void syncronize() {
     case TOKEN_WHILE:
     case TOKEN_PRINT:
     case TOKEN_RETURN:
+    case TOKEN_EXPORT:
+    case TOKEN_IMPORT:
       return;
     default: ; // do nothing
     }
@@ -934,13 +1019,12 @@ static PatchJump *loopGotoJump(const char *errMsg) {
 
 // top level, it starts from here
 static void declaration() {
-  if (match(TOKEN_CLASS)) {
-    classDeclaration();
-  } else if (match(TOKEN_FUN)) {
-    funDeclaration();
-  } else if (match(TOKEN_VAR)) {
-    varDeclaration();
-  } else {
+  switch (parser.current.type) {
+  case TOKEN_CLASS:  advance(); classDeclaration(); break;
+  case TOKEN_FUN:    advance(); funDeclaration(); break;
+  case TOKEN_VAR:    advance(); varDeclaration(); break;
+  case TOKEN_EXPORT: advance(); exportDeclaration(0); break;
+  default:
     statement();
   }
 
@@ -949,26 +1033,21 @@ static void declaration() {
 
 // parse a statement
 static void statement() {
-  if (match(TOKEN_PRINT)) {
-    printStatement();
-  } else if (match(TOKEN_FOR)) {
-    forStatement();
-  } else if (match(TOKEN_IF)) {
-    ifStatement();
-  } else if (match(TOKEN_RETURN)) {
-    returnStatement();
-  } else if (match(TOKEN_WHILE)) {
-    whileStatement();
-  } else if (match(TOKEN_IMPORT)) {
-    importStatement();
-  } else if (match(TOKEN_EXPORT)) {
-    exportStatment();
-  } else if (match(TOKEN_LEFT_BRACE)) {
-    beginScope();
-    block();
-    endScope();
-  } else {
-    expressionStatement();
+  switch (parser.current.type) {
+  case TOKEN_PRINT:  advance(); printStatement(); break;
+  case TOKEN_FOR:    advance(); forStatement(); break;
+  case TOKEN_IF:     advance(); ifStatement(); break;
+  case TOKEN_RETURN: advance(); returnStatement(); break;
+  case TOKEN_WHILE:  advance(); whileStatement(); break;
+  case TOKEN_IMPORT: advance(); importStatement(); break;
+  default:
+    if (match(TOKEN_LEFT_BRACE)) {
+      beginScope();
+      block();
+      endScope();
+    } else {
+      expressionStatement();
+    }
   }
 }
 
@@ -1018,8 +1097,7 @@ static void string(bool canAssign) {
 }
 
 // returns which assigment set is used is: +=, -= ...
-static OpCode mutate(bool canAssign)
-{
+static OpCode mutate(bool canAssign) {
   if (canAssign) {
     switch (parser.current.type) {
     case TOKEN_PLUS_EQUAL:  advance(); return OP_ADD;
@@ -1036,18 +1114,9 @@ static OpCode mutate(bool canAssign)
 // get a variable previously declared
 static void namedVariable(Token name, bool canAssign) {
   uint8_t getOp, setOp;
-  int arg = resolveLocal(current, &name);
-  if (arg != -1) {
-    getOp = OP_GET_LOCAL;
-    setOp = OP_SET_LOCAL;
-  } else if ((arg = resolveUpValue(current, &name)) != -1) {
-    getOp = OP_GET_UPVALUE;
-    setOp = OP_SET_UPVALUE;
-  } else if ((arg = identifierConstant(&name)) != -1) {
-    getOp = OP_GET_GLOBAL;
-    setOp = OP_SET_GLOBAL;
-  } else
-    return; // not found
+  int arg = variableAccessOp(&name, &getOp, &setOp);
+  if (arg < 0)
+    return;
 
   OpCode mutateCode = mutate(canAssign);
   if (mutateCode != OP_NIL) {

@@ -58,8 +58,10 @@ typedef enum {
   OP_DEFINE_ARRAY,
   OP_ARRAY_PUSH,
   OP_IMPORT_MODULE,
-  OP_IMPORT_LINK,
+  OP_IMPORT_VARIABLE,
   OP_EXPORT,
+
+  _OP_END
 } OpCode;
 
 typedef struct {

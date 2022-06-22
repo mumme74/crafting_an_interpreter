@@ -9,7 +9,6 @@
 
 typedef struct LoopJumps LoopJumps;
 
-
 // a local variable on stack
 typedef struct Local {
   Token name;
@@ -22,6 +21,7 @@ typedef struct Upvalue {
   uint8_t index;
   bool isLocal;
 } Upvalue;
+
 
 // which type of function is is
 typedef enum {

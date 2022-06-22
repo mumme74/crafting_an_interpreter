@@ -13,9 +13,8 @@
 #define OBJ_TYPE(value)            (AS_OBJ(value)->type)
 #define OBJ_CAST(value)            (Obj*)(value)
 
-#define ID_IMPORT(value)           (isObjType(value, OBJ_IMPORT_LINK))
 #define IS_MODULE(value)           (isObjType(value, OBJ_MODULE))
-#define IS_IMPORT_LINK(value)      (isObjType(value, OBJ_IMPORT_LINK)
+#define IS_REFERENCE(value)        (isObjType(value, OBJ_REFERENCE)
 #define IS_BOUND_METHOD(value)     (isObjType(value, OBJ_BOUND_METHOD))
 #define IS_DICT(value)             (isObjType(value, OBJ_DICT))
 #define IS_CLASS(value)            (isObjType(value, OBJ_CLASS))
@@ -28,9 +27,8 @@
 #define IS_PROTOTYPE(value)        (isObjType(value, OBJ_PROTOTYPE))
 #define IS_STRING(value)           (isObjType(value, OBJ_STRING))
 
-#define AS_IMPORT(value)           ((ObjImportLink*)AS_OBJ(value))
 #define AS_MODULE(value)           ((ObjModule*)AS_OBJ(value))
-#define AS_IMPORT_LINK(value)      ((ObjImportLink*)AS_OBJ(value))
+#define AS_REFERENCE(value)        ((ObjReference*)AS_OBJ(value))
 #define AS_BOUND_METHOD(value)     ((ObjBoundMethod*)AS_OBJ(value))
 #define AS_DICT(value)             ((ObjDict*)AS_OBJ(value))
 #define AS_CLASS(value)            ((ObjClass*)AS_OBJ(value))
@@ -57,6 +55,9 @@
 
 typedef struct Module Module;
 typedef struct ObjPrototype ObjPrototype;
+typedef struct ObjReference ObjReference;
+typedef Value (*RefGetFunc)(ObjReference *ref);
+typedef void (*RefSetFunc)(ObjReference *ref, Value value);
 
 typedef enum {
   OBJ_PROTOTYPE,
@@ -73,7 +74,7 @@ typedef enum {
   OBJ_STRING,
   OBJ_UPVALUE,
   OBJ_MODULE,
-  OBJ_IMPORT_LINK
+  OBJ_REFERENCE
 } ObjType;
 
 
@@ -169,11 +170,17 @@ typedef struct ObjModule {
   Module *module;
 } ObjModule;
 
-typedef struct ObjImportLink {
+// used to bridge between import from other modules
+typedef struct ObjReference {
   Obj obj;
   ObjString *name;
-  Obj *link;
-} ObjImportLink;
+  ObjModule *mod;
+  RefGetFunc get;
+  RefSetFunc set;
+  Chunk *chunk;
+  ObjClosure *closure;
+  int index;
+} ObjReference;
 
 typedef struct ObjDict {
   Obj obj;
@@ -198,7 +205,8 @@ ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int ari
 ObjNativeProp  *newNativeProp(NativePropGet getFn, NativePropSet setFn, ObjString *name);
 ObjUpvalue     *newUpvalue(Value *slot);
 
-ObjImportLink  *newImportLink(ObjString *name);
+ObjReference *newReference(ObjString *name, ObjModule *module, int index,
+                           Chunk *chunk, RefGetFunc get, RefSetFunc set);
 ObjModule      *newModule(Module *module);
 
 // takes chars intern them and return a ObjString

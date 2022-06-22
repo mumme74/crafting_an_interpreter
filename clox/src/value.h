@@ -81,7 +81,7 @@ typedef struct Value {
 #define BOOL_VAL(value)      ((Value) {{.boolean = (value)}, VAL_BOOL})
 #define NIL_VAL              ((Value) {{.number = 0},        VAL_NIL})
 #define NUMBER_VAL(value)    ((Value) {{.number = (value)},  VAL_NUMBER})
-#define OBJ_VAL(value)       ((Value) {{.obj = value},       VAL_OBJ})
+#define OBJ_VAL(value)       ((Value) {{.obj = (Obj*)value},       VAL_OBJ})
 
 #endif
 

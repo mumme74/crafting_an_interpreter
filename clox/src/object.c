@@ -13,6 +13,7 @@
 # endif
 #endif
 
+
 #define ALLOCATE_OBJ(type, objectType) \
   (type*)allocateObject(sizeof(type), objectType)
 
@@ -331,11 +332,18 @@ ObjModule *newModule(Module *module) {
   return objModule;
 }
 
-ObjImportLink *newImportLink(ObjString *name) {
-  ObjImportLink *impLink = ALLOCATE_OBJ(ObjImportLink, OBJ_IMPORT_LINK);
-  impLink->name = name;
-  impLink->link = NULL;
-  return impLink;
+ObjReference *newReference(ObjString *name, ObjModule *module, int index,
+                           Chunk *chunk, RefGetFunc get, RefSetFunc set)
+{
+  ObjReference *oref = ALLOCATE_OBJ(ObjReference, OBJ_REFERENCE);
+  oref->name = name;
+  oref->mod  = module;
+  oref->chunk = chunk;
+  oref->get = get;
+  oref->set = set;
+  oref->closure = NULL;
+  oref->index = index;
+  return oref;
 }
 
 ObjString *takeString(char *chars, int length) {
@@ -415,6 +423,7 @@ const char *typeOfObject(Obj* object) {
   case OBJ_UPVALUE:      return "upvalue";
   case OBJ_PROTOTYPE:    return "prototype";
   case OBJ_MODULE:       return "module";
+  case OBJ_REFERENCE:  return "reference";
   }
   return "undefined";
 }
@@ -492,6 +501,17 @@ ObjString *objectToString(Value value) {
     buf = ALLOCATE(char, len);
     sprintf(buf, "<module %s>", mod->module->name->chars);
     ret = copyString(buf, len-1);
+  } break;
+  case OBJ_REFERENCE: {
+    ObjReference *ref = AS_REFERENCE(value);
+    if (ref->closure != NULL)
+      return valueToString(ref->get(ref));
+    len = ref->name->length + ref->mod->module->name->length +26+1;
+    buf = ALLOCATE(char, len);
+    sprintf(buf, "<broken ref to '%s' from '%s'>",
+            ref->name->chars,
+            ref->mod->module->name->chars);
+    ret = copyString(buf, len);
   } break;
   }
 
