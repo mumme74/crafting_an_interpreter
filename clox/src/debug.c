@@ -30,8 +30,8 @@ static int constantInstruction(const char *name, Chunk *chunk,
                                int offset)
 {
   uint8_t constant = chunk->code[offset + 1];
-  printf("%-16s %4d '", name, constant);
-  printf("%s\n",valueToString(chunk->constants.values[constant])->chars);
+  printf("%-16s %4d '%s'\n", name, constant,
+         valueToString(chunk->constants.values[constant])->chars);
   return offset + 2;
 }
 
@@ -163,16 +163,15 @@ int disassembleInstruction(Chunk *chunk, int offset) {
   case OP_CLOSURE: {
     offset++;
     uint8_t constant = chunk->code[offset++];
-    printf("%-15s %4d ", "OP_CLOSURE", constant);
-    valueToString(chunk->constants.values[constant]);
-    printf("\n");
-
+    printf("%-15s  %4d '%s'\n", "OP_CLOSURE",
+           constant,
+           valueToString(chunk->constants.values[constant])->chars);
     ObjFunction *function = AS_FUNCTION(
       chunk->constants.values[constant]);
     for (int j = 0; j < function->upvalueCount; ++j) {
       int isLocal = chunk->code[offset++];
       int index = chunk->code[offset++];
-      printf("%04d    |                    %s %d\n",
+      printf("%04d    |                     %s %d\n",
             offset - 2, isLocal ? "local" : "upvalue", index);
     }
 
