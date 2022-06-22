@@ -167,9 +167,7 @@ static void errorAt(Token *token, const char *message) {
 
   if (token->type == TOKEN_EOF) {
     fprintf(stderr, " at end");
-  } else if (token->type == TOKEN_ERROR) {
-    // nothing
-  } else {
+  } else if (token->type != TOKEN_ERROR) {
     fprintf(stderr, " at '%.*s'", token->length, token->start);
   }
 
@@ -396,11 +394,16 @@ static int variableAccessOp(Token *name, uint8_t *getOp,
     *getOp = OP_GET_UPVALUE;
     *setOp = OP_SET_UPVALUE;
   } else if ((arg = identifierConstant(name)) != -1) {
-    *getOp = OP_GET_GLOBAL;
-    *setOp = OP_SET_GLOBAL;
+    if (tableHasKey(&vm.globals, copyString(name->start, name->length))){
+      *getOp = OP_GET_GLOBAL;
+      *setOp = OP_SET_GLOBAL;
+    } else {
+      *getOp = *setOp = 0xFF;
+      return -1;
+    }
   } else {
     *getOp = *setOp = 0xFF;
-    return -10;
+    return -1;
   }
   return arg;
 }
@@ -917,10 +920,10 @@ static void exportIdentifier(Token *identToken) {
   uint8_t getOp, setOp;
   int varIdx = variableAccessOp(identToken, &getOp, &setOp);
   if (varIdx < 0) {
-    error("Identifier '%s' not found.\n", ident->chars);
+    errorAtCurrent("Identifier '%s' not found.\n", ident->chars);
     return;
   } else if (getOp == OP_GET_GLOBAL) {
-    error("Can't export '%s' because it's a global.\n");
+    errorAtCurrent("Can't export '%s' because it's a global.\n", ident->chars);
     return;
   }
 
@@ -951,7 +954,7 @@ static void exportDeclaration(int depth) {
   case TOKEN_LEFT_BRACE: // begin {...} exports
     while (check(TOKEN_IDENTIFIER)) {
       exportIdentifier(&parser.current);
-      if (check(TOKEN_COMMA)) advance();
+      if (!check(TOKEN_RIGHT_BRACE)) advance();
     }
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after export list.\n");
     break;
