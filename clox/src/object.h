@@ -14,7 +14,7 @@
 #define OBJ_CAST(value)            (Obj*)(value)
 
 #define IS_MODULE(value)           (isObjType(value, OBJ_MODULE))
-#define IS_REFERENCE(value)        (isObjType(value, OBJ_REFERENCE)
+#define IS_REFERENCE(value)        (isObjType(value, OBJ_REFERENCE))
 #define IS_BOUND_METHOD(value)     (isObjType(value, OBJ_BOUND_METHOD))
 #define IS_DICT(value)             (isObjType(value, OBJ_DICT))
 #define IS_CLASS(value)            (isObjType(value, OBJ_CLASS))
@@ -55,9 +55,6 @@
 
 typedef struct Module Module;
 typedef struct ObjPrototype ObjPrototype;
-typedef struct ObjReference ObjReference;
-typedef Value (*RefGetFunc)(ObjReference *ref);
-typedef void (*RefSetFunc)(ObjReference *ref, Value value);
 
 typedef enum {
   OBJ_PROTOTYPE,
@@ -175,8 +172,6 @@ typedef struct ObjReference {
   Obj obj;
   ObjString *name;
   ObjModule *mod;
-  RefGetFunc get;
-  RefSetFunc set;
   Chunk *chunk;
   ObjClosure *closure;
   int index;
@@ -204,10 +199,14 @@ ObjNativeFn    *newNativeFn(NativeFn function, ObjString *name, int arity);
 ObjNativeMethod *newNativeMethod(NativeMethod function, ObjString *name, int arity);
 ObjNativeProp  *newNativeProp(NativePropGet getFn, NativePropSet setFn, ObjString *name);
 ObjUpvalue     *newUpvalue(Value *slot);
-
-ObjReference *newReference(ObjString *name, ObjModule *module, int index,
-                           Chunk *chunk, RefGetFunc get, RefSetFunc set);
 ObjModule      *newModule(Module *module);
+ObjReference   *newReference(ObjString *name, ObjModule *module,
+                             int index, Chunk *chunk);
+
+// get function for reference
+Value refGet(ObjReference *ref);
+// set function for reference
+void refSet(ObjReference *ref, Value value);
 
 // takes chars intern them and return a ObjString
 // vm takes ownership of chars

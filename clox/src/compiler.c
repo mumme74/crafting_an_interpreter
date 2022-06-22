@@ -82,8 +82,8 @@ primary        -> "true" | "false" | "nil"
 // used as get/set functions for ObjReference
 extern Value refGetGlbl(ObjReference *ref);
 extern void refSetGlbl(ObjReference *ref, Value value);
-extern Value refGetUpvlu(ObjReference *ref);
-extern void refSetUpvlu(ObjReference *ref, Value value);
+extern Value refGet(ObjReference *ref);
+extern void refSet(ObjReference *ref, Value value);
 
 typedef struct Parser {
   Token current,
@@ -310,6 +310,7 @@ static bool identifiersEqual(Token *a, Token *b) {
 
 // lookup a local variable
 static int resolveLocal(Compiler *compiler, Token *name) {
+  if (compiler == NULL) return -1;
   for (int i = compiler->localCount -1; i >= 0; --i) {
     Local *local = &compiler->locals[i];
     if (identifiersEqual(name, &local->name)) {
@@ -347,11 +348,12 @@ static int addUpvalue(Compiler *compiler, uint8_t index,
 
 // lookup a closure value
 static int resolveUpValue(Compiler *compiler, Token *name) {
-  if (compiler->enclosing == NULL) return -1;
+  //if (compiler->enclosing == NULL) return -1;
+  if (compiler == NULL) return -1;
 
-  int local = resolveLocal(compiler->enclosing, name);
+  int local = resolveLocal(compiler, name);
   if (local != -1) {
-    compiler->enclosing->locals[local].isCaptured = true;
+    compiler->locals[local].isCaptured = true;
     return addUpvalue(compiler, (uint8_t)local, true);
   }
 
@@ -364,7 +366,7 @@ static int resolveUpValue(Compiler *compiler, Token *name) {
 }
 
 // add a new local to current frame
-static void addLocal(Token name) {
+static void addLocal(Token name, bool isReference) {
   if (current->localCount == UINT8_COUNT) {
     error("Too many local variables in function.");
     return;
@@ -374,6 +376,7 @@ static void addLocal(Token name) {
   local->name = name;
   local->depth = -1;
   local->isCaptured = false;
+  local->isReference = isReference;
 }
 
 // lookup variable and set access operators used to retrieve varable
@@ -382,8 +385,13 @@ static int variableAccessOp(Token *name, uint8_t *getOp,
 {
   int arg = resolveLocal(current, name);
   if (arg != -1) {
-    *getOp = OP_GET_LOCAL;
-    *setOp = OP_SET_LOCAL;
+    if (current->locals[arg].isReference) {
+      *getOp = OP_GET_REFERENCE;
+      *setOp = OP_SET_REFERENCE;
+    } else {
+      *getOp = OP_GET_LOCAL;
+      *setOp = OP_SET_LOCAL;
+    }
   } else if ((arg = resolveUpValue(current, name)) != -1) {
     *getOp = OP_GET_UPVALUE;
     *setOp = OP_SET_UPVALUE;
@@ -392,14 +400,14 @@ static int variableAccessOp(Token *name, uint8_t *getOp,
     *setOp = OP_SET_GLOBAL;
   } else {
     *getOp = *setOp = 0xFF;
-    return -1;
+    return -10;
   }
   return arg;
 }
 
 // declare a new variable ie: var tmp;
-static void declareVariable() {
-  if (current->scopeDepth == 0) return;
+static void declareVariable(bool isReference) {
+  //if (current->scopeDepth == 0) return;
 
   Token *name = &parser.previous;
   for (int i = 0; i < current->localCount; ++i) {
@@ -413,7 +421,7 @@ static void declareVariable() {
     }
   }
 
-  addLocal(*name);
+  addLocal(*name, isReference);
 }
 
 // context switch for parser, to get the correct parse precedence
@@ -437,29 +445,29 @@ static void parsePrecedence(Precedence precedence) {
 }
 
 // parse a variable
-static uint8_t parseVariable(const char *errorMessage) {
+static uint8_t parseVariable(const char *errorMessage, bool isReference) {
   consume(TOKEN_IDENTIFIER, errorMessage);
 
-  declareVariable();
-  if (current->scopeDepth > 0) return 0;
+  declareVariable(isReference);
+  //if (current->scopeDepth > 0) return 0;
 
   return identifierConstant(&parser.previous);
 }
 
 // mark a variable as initialized
 static void markInitialized() {
-  if (current->scopeDepth == 0) return;
+  //if (current->scopeDepth == 0) return;
   current->locals[current->localCount -1].depth =
     current->scopeDepth;
 }
 
 // define a variable ie the: = value part ov var v = value;
 static void defineVariable(uint8_t global) {
-  if (current->scopeDepth > 0) {
+  //if (current->scopeDepth > 0) {
     markInitialized();
     return;
-  }
-  emitBytes(OP_DEFINE_GLOBAL, global);
+ // }
+ // emitBytes(OP_DEFINE_GLOBAL, global);
 }
 
 // parse a function arguments list
@@ -591,7 +599,7 @@ static void function(FunctionType type) {
       if (current->function->arity > 255) {
         errorAtCurrent("Can't have more than 255 parameters");
       }
-      uint8_t constant = parseVariable("Expect parameter name.");
+      uint8_t constant = parseVariable("Expect parameter name.", false);
       defineVariable(constant);
     } while(match(TOKEN_COMMA));
   }
@@ -623,7 +631,7 @@ static void classDeclaration() {
   consume(TOKEN_IDENTIFIER, "Expect class name.");
   Token className = parser.previous;
   uint8_t nameConstant = identifierConstant(&parser.previous);
-  declareVariable();
+  declareVariable(false);
 
   emitBytes(OP_CLASS, nameConstant);
   defineVariable(nameConstant);
@@ -641,7 +649,7 @@ static void classDeclaration() {
     }
 
     beginScope();
-    addLocal(syntheticToken("super"));
+    addLocal(syntheticToken("super"), false);
     defineVariable(0);
 
     namedVariable(className, false);
@@ -666,7 +674,7 @@ static void classDeclaration() {
 
 // declare a function
 static void funDeclaration() {
-  uint8_t global = parseVariable("Expect function name");
+  uint8_t global = parseVariable("Expect function name", false);
   markInitialized();
   function(TYPE_FUNCTION);
   defineVariable(global);
@@ -674,7 +682,7 @@ static void funDeclaration() {
 
 // declare a variable ie. var v = 1;
 static void varDeclaration() {
-  uint8_t global = parseVariable("Expect variable name.");
+  uint8_t global = parseVariable("Expect variable name.", false);
 
   if (match(TOKEN_EQUAL)) {
     expression();
@@ -864,25 +872,22 @@ static void whileStatement() {
 // parses a import param ie: id1 as id in
 // import {id1 as id} from "path.lox"
 static void importParam() {
-  uint8_t nameInExport = identifierConstant(&parser.current);
 
-  //ObjString *alias = name;
+  uint8_t nameInExport, alias;
+  nameInExport = identifierConstant(&parser.current);
+
   if (scanPeek(1).type == TOKEN_AS) {
     advance(); advance();
   }
-
   Token identToken = parser.current;
-  parseVariable("Expect IDENTIFIER in import statement.\n");
+  alias = parseVariable("Expect IDENTIFIER in import statement.\n", true);
   markInitialized();
+
   uint8_t getOp, setOp;
   int varIdx = variableAccessOp(&identToken, &getOp, &setOp);
-  //ObjString *ident = copyString(identToken.start, identToken.length);
-  emitByte(OP_IMPORT_VARIABLE);
-  emitBytes(nameInExport, varIdx);
-  if (getOp == OP_GET_GLOBAL)
-    emitBytes(OP_DEFINE_GLOBAL, nameInExport);
-  else
-    emitBytes(OP_SET_LOCAL, varIdx);
+
+  emitBytes(OP_IMPORT_VARIABLE, nameInExport);
+  emitBytes(alias, varIdx);
 }
 
 // parses a import statement, ie:
@@ -904,39 +909,32 @@ static void importStatement() {
   advance();
   patchChunkPos(chunk, parseString(false), stringPos);
   consume(TOKEN_SEMICOLON, "Expect ';' after path.");
-  emitByte(OP_POP);
 }
 
 static void exportIdentifier(Token *identToken) {
-  uint8_t getOp, setOp;
-  int idx = variableAccessOp(identToken, &getOp, &setOp);
-  if (idx < 0) {
-    char buf[100] = {0};
-    memcpy(buf, identToken->start, identToken->length);
-    error("Identifier '%s' not found.\n", buf);
-    parser.panicMode = true;
-    return;
-  }
   ObjString *ident = copyString(identToken->start,
                                 identToken->length);
-  int identIdx = identifierConstant(identToken);
-  ObjModule *mod = newModule(current->function->chunk.module);
-  ObjReference *ref;
-  if (getOp == OP_GET_GLOBAL) {
-    ref = newReference(ident, mod,
-                       idx, &current->function->chunk,
-                       refGetGlbl, refSetGlbl);
-  } else {
-    idx = resolveUpValue(current, identToken);
-    emitBytes(OP_CLOSE_UPVALUE, idx);
-    ref = newReference(ident, mod,
-                       idx, &current->function->chunk,
-                       refGetUpvlu, refSetUpvlu);
+  uint8_t getOp, setOp;
+  int varIdx = variableAccessOp(identToken, &getOp, &setOp);
+  if (varIdx < 0) {
+    error("Identifier '%s' not found.\n", ident->chars);
+    return;
+  } else if (getOp == OP_GET_GLOBAL) {
+    error("Can't export '%s' because it's a global.\n");
+    return;
   }
 
+  int identIdx = identifierConstant(identToken);
+  ObjModule *mod = newModule(current->function->chunk.module);
+
+  int upIdx = resolveUpValue(current, identToken);
+  ObjReference *ref = newReference(
+                        ident, mod, upIdx, &current->function->chunk);
+
+  emitBytes(OP_EXPORT, identIdx);
+  emitBytes(varIdx, upIdx);
   tableSet(&current->function->chunk.module->exports,
            ident, OBJ_VAL(ref));
-  emitBytes(OP_EXPORT, identIdx);
   advance();
 }
 

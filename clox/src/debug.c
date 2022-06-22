@@ -47,12 +47,23 @@ static int invokeInstruction(const char *name, Chunk *chunk,
 
 static int importInstruction(const char *name, Chunk *chunk, int offset) {
   uint8_t nameInExport = chunk->code[offset +1],
-          varIdx       = chunk->code[offset +2];
-  printf("%-16s (%s) -> (%s) ", name,
+          alias        = chunk->code[offset +2],
+          varIdx       = chunk->code[offset +3];
+  printf("%-16s (%s) -> (%s) localIdx:%d\n", name,
          AS_CSTRING(chunk->constants.values[nameInExport]),
-         AS_CSTRING(chunk->constants.values[varIdx]));
-  printf("\n");
-  return offset +3;
+         AS_CSTRING(chunk->constants.values[alias]), varIdx);
+  return offset +4;
+}
+
+static int exportInstruction(const char *name, Chunk *chunk, int offset) {
+   uint8_t nameInExport = chunk->code[offset +1],
+          varIdx        = chunk->code[offset +2],
+          upIdx         = chunk->code[offset +3];
+  printf("%-16s (%s) localIdx%d upIdx:%d\n", name,
+         AS_CSTRING(chunk->constants.values[nameInExport]),
+         varIdx, upIdx);
+
+  return offset +4;
 }
 
 // ----------------------------------------------------
@@ -89,6 +100,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return simpleInstruction("OP_POP", offset);
   case OP_GET_LOCAL:
     return byteInstruction("OP_GET_LOCAL", chunk, offset);
+  case OP_GET_REFERENCE:
+    return byteInstruction("OP_GET_REFERENCE", chunk, offset);
   case OP_GET_GLOBAL:
     return constantInstruction("OP_GET_GLOBAL", chunk, offset);
   case OP_GET_UPVALUE:
@@ -104,6 +117,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
                                chunk, offset);
   case OP_SET_LOCAL:
     return byteInstruction("OP_SET_LOCAL", chunk, offset);
+  case OP_SET_REFERENCE:
+    return byteInstruction("OP_SET_REFERENCE", chunk, offset);
   case OP_SET_GLOBAL:
     return constantInstruction("OP_SET_GLOBAL",
                                chunk, offset);
@@ -188,7 +203,7 @@ int disassembleInstruction(Chunk *chunk, int offset) {
   case OP_IMPORT_VARIABLE:
     return importInstruction("OP_IMPORT_VARIABLE", chunk, offset);
   case OP_EXPORT:
-    return constantInstruction("OP_EXPORT", chunk, offset);
+    return exportInstruction("OP_EXPORT", chunk, offset);
 
   case _OP_END:
     printf("_OP_END it's a bug if this text shows!!\n");

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 #include "object.h"
 #include "memory.h"
@@ -332,20 +333,30 @@ ObjModule *newModule(Module *module) {
   return objModule;
 }
 
-ObjReference *newReference(ObjString *name, ObjModule *module, int index,
-                           Chunk *chunk, RefGetFunc get, RefSetFunc set)
+ObjReference *newReference(ObjString *name, ObjModule *module,
+                           int index, Chunk *chunk)
 {
   ObjReference *oref = ALLOCATE_OBJ(ObjReference, OBJ_REFERENCE);
   oref->name = name;
   oref->mod  = module;
   oref->chunk = chunk;
-  oref->get = get;
-  oref->set = set;
   oref->closure = NULL;
   oref->index = index;
   return oref;
 }
 
+// get function for reference
+Value refGet(ObjReference *ref) {
+  assert(ref->index > -1);
+  return *ref->closure->upvalues[ref->index]->location;
+}
+
+// set function for reference
+void refSet(ObjReference *ref, Value value) {
+  *ref->closure->upvalues[ref->index]->location = value;
+}
+
+// takes a string (as in owning memory for it)
 ObjString *takeString(char *chars, int length) {
   uint32_t hash = hashString(chars, length);
   ObjString *interned = tableFindString(&vm.strings, chars, length, hash);
@@ -358,6 +369,7 @@ ObjString *takeString(char *chars, int length) {
   return allocateString(chars, length, hash);
 }
 
+// copy a string, chars memory is owned by caller
 ObjString *copyString(const char *chars, int length) {
   uint32_t hash = hashString(chars, length);
   // intern string
@@ -371,6 +383,7 @@ ObjString *copyString(const char *chars, int length) {
   return allocateString(heapChars, length, hash);
 }
 
+// join 2 strings
 ObjString *concatString(const char *str1, const char *str2, int len1, int len2) {
   char *heapChars = ALLOCATE(char, len1 + len2);
   memcpy(heapChars, str1, len1);
@@ -505,7 +518,7 @@ ObjString *objectToString(Value value) {
   case OBJ_REFERENCE: {
     ObjReference *ref = AS_REFERENCE(value);
     if (ref->closure != NULL)
-      return valueToString(ref->get(ref));
+      return valueToString(refGet(ref));
     len = ref->name->length + ref->mod->module->name->length +26+1;
     buf = ALLOCATE(char, len);
     sprintf(buf, "<broken ref to '%s' from '%s'>",

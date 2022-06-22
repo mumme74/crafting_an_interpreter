@@ -282,9 +282,9 @@ static InterpretResult run() {
 
   void* labels[] = {
     OP(OP_CONSTANT), OP(OP_NIL), OP(OP_TRUE), OP(OP_FALSE),
-    OP(OP_POP), OP(OP_GET_LOCAL), OP(OP_GET_GLOBAL),
+    OP(OP_POP), OP(OP_GET_LOCAL), OP(OP_GET_GLOBAL), OP(OP_GET_REFERENCE)
     OP(OP_GET_UPVALUE), OP(OP_GET_PROPERTY), OP(OP_GET_SUBSCRIPT),
-    OP(OP_GET_SUPER), OP(OP_DEFINE_GLOBAL), OP(OP_SET_LOCAL),
+    OP(OP_GET_SUPER), OP(OP_DEFINE_GLOBAL), OP(OP_SET_LOCAL), OP(OP_SET_REFERENCE)
     OP(OP_SET_GLOBAL), OP(OP_SET_UPVALUE), OP(OP_SET_PROPERTY),
     OP(OP_SET_SUBSCRIPT), OP(OP_EQUAL), OP(OP_GREATER), OP(OP_LESS),
     OP(OP_ADD), OP(OP_SUBTRACT), OP(OP_MULTIPLY), OP(OP_DIVIDE),
@@ -316,6 +316,8 @@ static InterpretResult run() {
 
 
   uint8_t instruction;
+  Value *entryStackPtr = vm.stackTop-1;
+  ObjModule *importModule = NULL;
 
   for(;;) {
     TRACE_PRINT_EXECUTION;
@@ -331,6 +333,11 @@ static InterpretResult run() {
     CASE(OP_GET_LOCAL) {
       uint8_t slot = READ_BYTE();
       push(frame->slots[slot]);
+    } BREAK;
+    CASE(OP_GET_REFERENCE) {
+      uint8_t slot = READ_BYTE();
+      assert(IS_REFERENCE(frame->slots[slot]));
+      push(refGet(AS_REFERENCE(frame->slots[slot])));
     } BREAK;
     CASE(OP_GET_GLOBAL) {
       ObjString *name = READ_STRING();
@@ -398,6 +405,12 @@ static InterpretResult run() {
     CASE(OP_SET_LOCAL) {
       uint8_t slot = READ_BYTE();
       frame->slots[slot] = peek(0);
+      DBG_NEXT;
+    } BREAK;
+    CASE(OP_SET_REFERENCE) {
+      uint8_t slot = READ_BYTE();
+      assert(IS_REFERENCE(frame->slots[slot]));
+      refSet(AS_REFERENCE(frame->slots[slot]), peek(0));
       DBG_NEXT;
     } BREAK;
     CASE(OP_SET_GLOBAL) {
@@ -550,7 +563,7 @@ static InterpretResult run() {
       vm.frameCount--;
       if (vm.frameCount == vm.exitAtFrame) {
         // exit interpreter or the module imported
-        pop();
+        vm.stackTop = entryStackPtr;
         return INTERPRET_OK;
       }
 
@@ -603,26 +616,28 @@ static InterpretResult run() {
     CASE(OP_IMPORT_MODULE) {
       TRACE_MODULE_LOAD
       Value path = READ_CONSTANT();
-      Value module = getModuleByPath(path);
+      importModule = AS_MODULE(getModuleByPath(path));
       TRACE_MODULE_LOADED
-      if (IS_NIL(module))
+      if (importModule == NULL)
         return runtimeError("Failed to load script from: %s\n", AS_CSTRING(path));
-      push(module);
       DBG_NEXT;
     } BREAK;
     CASE(OP_IMPORT_VARIABLE) {
       ObjString *nameInExport = AS_STRING(READ_CONSTANT());
-      uint8_t   varIdx = READ_BYTE(); (void)varIdx; // used to disassemble properly
-      ObjModule *mod = AS_MODULE(peek(0));
+      uint8_t   alias = READ_BYTE(),
+                varIdx  = READ_BYTE();
       Value ref;
-      if (!tableGet(&mod->module->exports, nameInExport, &ref)) {
+      if (!tableGet(&importModule->module->exports, nameInExport, &ref)) {
         return runtimeError("%s is not exported from %s.\n",
-                            nameInExport->chars, mod->module->name->chars);
+                            nameInExport->chars, importModule->module->name->chars);
       }
-      push(ref);
+      frame->slots[varIdx] = ref;
     } BREAK;
     CASE(OP_EXPORT) {
       ObjString *ident = AS_STRING(READ_CONSTANT());
+      uint8_t localIdx = READ_BYTE(),
+              upIdx    = READ_BYTE();
+      frame->closure->upvalues[upIdx] = captureUpvalue(&frame->slots[localIdx]);
       Value ref;
       if (tableGet(&frame->closure->function->chunk.module->exports,
                    ident, &ref))
@@ -828,23 +843,4 @@ Value pop() {
 
 Value peek(int distance) {
   return vm.stackTop[-1 - distance];
-}
-
-
-Value refGetGlbl(ObjReference *ref) {
-  Value value;
-  tableGet(&vm.globals, ref->name, &value);
-  return value;
-}
-
-void refSetGlbl(ObjReference *ref, Value value) {
-  tableSet(&vm.globals, ref->name, value);
-}
-
-Value refGetUpvlu(ObjReference *ref) {
-  return *ref->closure->upvalues[ref->index]->location;
-}
-
-void refSetUpvlu(ObjReference *ref, Value value) {
-  *ref->closure->upvalues[ref->index]->location = value;
 }

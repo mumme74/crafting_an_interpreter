@@ -13,7 +13,8 @@ typedef struct LoopJumps LoopJumps;
 typedef struct Local {
   Token name;
   int depth;
-  bool isCaptured;
+  bool isCaptured,
+       isReference;
 } Local;
 
 // a upvalue (when a closure occurs)
