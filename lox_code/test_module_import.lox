@@ -1,0 +1,26 @@
+print "test_module_import.lox";
+
+
+var arg = "arg_upvalue";
+
+fun loxSetArg(arg1) {
+  print "print from setArg\n";
+  print arg1;
+  arg = arg1;
+  return arg;
+}
+
+fun loxGetArg() {
+  print "from getArg\n";
+  print arg;
+  return arg;
+}
+
+var num1 = 123409876;
+var str2 = "This is next tstr exported";
+var arr1 = [1,2,3,4,5];
+var dict = {str1: "This is exported string", num2: 123456789};
+//export arr1;
+//export dict;
+
+export { str2, num1, loxSetArg, loxGetArg}

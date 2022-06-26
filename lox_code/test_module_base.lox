@@ -1,0 +1,15 @@
+print "test_module_base.lox";
+
+//print __name__;
+
+import {num1, str2 as s,  loxGetArg, loxSetArg } from "test_module_import.lox";
+
+print s;
+print num1;
+print loxGetArg();
+loxSetArg("loxSetArg");
+print loxGetArg();
+var lgA = loxGetArg, lsA = loxSetArg;
+print lgA();
+lsA("lgA");
+print lgA();

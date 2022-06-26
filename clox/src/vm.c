@@ -235,7 +235,19 @@ static void concatenate() {
   push(OBJ_VAL(OBJ_CAST(result)));
 }
 
-
+static void loadUpvalues(CallFrame *frame, ObjClosure *closure) {
+  for (int i = 0; i < closure->upvalueCount; ++i) {
+    Upvalue *upVlu = &closure->function->chunk.compiler->upvalues[i];
+    uint8_t isLocal = upVlu->isLocal,
+            index   = upVlu->index;
+    if (isLocal) {
+      closure->upvalues[i] =
+        captureUpvalue(frame->slots + index);
+    } else {
+      closure->upvalues[i] = frame->closure->upvalues[index];
+    }
+  }
+}
 
 static InterpretResult run() {
   CallFrame *frame = &vm.frames[vm.frameCount -1];
@@ -317,6 +329,7 @@ static InterpretResult run() {
 
   uint8_t instruction;
   ObjModule *importModule = NULL;
+  loadUpvalues(frame, frame->closure);
 
   for(;;) {
     TRACE_PRINT_EXECUTION;
@@ -542,16 +555,8 @@ static InterpretResult run() {
       ObjFunction *function = AS_FUNCTION(READ_CONSTANT());
       ObjClosure *closure = newClosure(function);
       push(OBJ_VAL(OBJ_CAST(closure)));
-      for (int i = 0; i < closure->upvalueCount; ++i) {
-        uint8_t isLocal = READ_BYTE(),
-                index   = READ_BYTE();
-        if (isLocal) {
-          closure->upvalues[i] =
-            captureUpvalue(frame->slots + index);
-        } else {
-          closure->upvalues[i] = frame->closure->upvalues[index];
-        }
-      }
+      loadUpvalues(frame, closure);
+      frame->ip += 2 * closure->upvalueCount;
     } BREAK;
     CASE(OP_CLOSE_UPVALUE)
       closeUpvalues(vm.stackTop - 1);
@@ -614,6 +619,7 @@ static InterpretResult run() {
     CASE(OP_IMPORT_MODULE) {
       TRACE_MODULE_LOAD
       Value path = READ_CONSTANT();
+      assert(IS_STRING(path));
       importModule = AS_MODULE(getModuleByPath(path));
       TRACE_MODULE_LOADED
       if (importModule == NULL)
@@ -621,15 +627,18 @@ static InterpretResult run() {
       DBG_NEXT;
     } BREAK;
     CASE(OP_IMPORT_VARIABLE) {
-      ObjString *nameInExport = AS_STRING(READ_CONSTANT());
-      uint8_t   alias = READ_BYTE(),
-                varIdx  = READ_BYTE();
+      ObjString *nameInExport = AS_STRING(READ_CONSTANT()),
+                *alias = AS_STRING(READ_CONSTANT());
+      uint8_t   varIdx  = READ_BYTE();
       Value ref;
       if (!tableGet(&importModule->module->exports, nameInExport, &ref)) {
-        return runtimeError("%s is not exported from %s.\n",
-                            nameInExport->chars, importModule->module->name->chars);
+        return runtimeError("%s is not exported from %s as %s.\n",
+                            nameInExport->chars,
+                            importModule->module->name->chars,
+                            alias->chars);
       }
       frame->slots[varIdx] = ref;
+      vm.stackTop++;
     } BREAK;
     CASE(OP_EXPORT) {
       ObjString *ident = AS_STRING(READ_CONSTANT());
@@ -714,14 +723,7 @@ InterpretResult vm_evalBuild(ObjClosure **closure, const char *source) {
  *closure = newClosure(function);
   (*closure)->upvalueCount = function->upvalueCount;
   push(OBJ_VAL(OBJ_CAST(*closure)));
-  for(int i = 0; i < function->upvalueCount; ++i) {
-    int index = function->chunk.compiler->upvalues[i].index;
-    if (function->chunk.compiler->upvalues[index].isLocal) {
-      (*closure)->upvalues[i] = captureUpvalue(frame->slots + index);
-    } else {
-      (*closure)->upvalues[i] = frame->closure->upvalues[index];;
-    }
-  }
+  loadUpvalues(frame, *closure);
   setGCenabled(enabled);
   return INTERPRET_OK;
 }
