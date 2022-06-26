@@ -1116,8 +1116,11 @@ static OpCode mutate(bool canAssign) {
 static void namedVariable(Token name, bool canAssign) {
   uint8_t getOp, setOp;
   int arg = variableAccessOp(&name, &getOp, &setOp);
-  if (arg < 0)
+  if (arg < 0) {
+    error("Identifier not found.\n");
+    parser.panicMode = true;
     return;
+  }
 
   OpCode mutateCode = mutate(canAssign);
   if (mutateCode != OP_NIL) {
