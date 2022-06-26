@@ -3,6 +3,7 @@
 #include "debug.h"
 #include "value.h"
 #include "object.h"
+#include "compiler.h"
 
 static int simpleInstruction(const char *name, int offset) {
   printf("%s\n", name);
@@ -13,7 +14,8 @@ static int byteInstruction(const char *name, Chunk *chunk,
                            int offset)
 {
   uint8_t slot = chunk->code[offset +1];
-  printf("%-16s %4d\n", name, slot);
+  Token tok = chunk->compiler->locals[slot].name;
+  printf("%-16s %4d %.*s\n", name, slot, tok.length, tok.start);
   return offset + 2;
 }
 
@@ -43,6 +45,13 @@ static int invokeInstruction(const char *name, Chunk *chunk,
   printf("%-16s (%d args) %4d '", name, argCount, constant);
   printf("%s\n", valueToString(chunk->constants.values[constant])->chars);
   return offset +3;
+}
+
+static int callInstruction(const char *name, Chunk *chunk, int offset) {
+  uint8_t slot = chunk->code[offset +1];
+  Token tok = chunk->compiler->locals[slot].name;
+  printf("%-16s fn:%.*s args:%-4d\n", name, tok.length, tok.start, slot);
+  return offset + 2;
 }
 
 static int importInstruction(const char *name, Chunk *chunk, int offset) {
@@ -155,7 +164,7 @@ int disassembleInstruction(Chunk *chunk, int offset) {
   case OP_LOOP:
     return jumpInstruction("OP_LOOP", -1, chunk, offset);
   case OP_CALL:
-    return byteInstruction("OP_CALL", chunk, offset);
+    return callInstruction("OP_CALL", chunk, offset);
   case OP_INVOKE:
     return invokeInstruction("OP_INVOKE", chunk, offset);
   case OP_SUPER_INVOKE:
