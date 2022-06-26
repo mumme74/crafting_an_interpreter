@@ -132,7 +132,7 @@ ObjString *valueToString(Value value) {
   } else if (IS_NIL(value)) {
     return copyString("nil", 3);
   } else if (IS_NUMBER(value)) {
-    const char buf[30];
+    char buf[30];
     sprintf(buf, "%g", AS_NUMBER(value));
     return copyString(buf, strlen(buf));
   } else if (IS_OBJ(value)) {

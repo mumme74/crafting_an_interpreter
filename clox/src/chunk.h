@@ -48,7 +48,7 @@ typedef enum {
   OP_CLOSE_UPVALUE,
   OP_RETURN,
   OP_EVAL_EXIT,
-  OP_THROW,
+  //OP_THROW,
   //OP_TRY,
   //OP_CATCH,
   //OP_FINALLY,
