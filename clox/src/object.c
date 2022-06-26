@@ -342,12 +342,12 @@ ObjReference *newReference(ObjString *name, ObjModule *module,
   oref->chunk = chunk;
   oref->closure = NULL;
   oref->index = index;
+  assert(oref->index > -1);
   return oref;
 }
 
 // get function for reference
 Value refGet(ObjReference *ref) {
-  assert(ref->index > -1);
   return *ref->closure->upvalues[ref->index]->location;
 }
 
