@@ -59,7 +59,6 @@ static void printSource(int baseline, int window) {
 
   Module *module = getCurrentModule();
   const char *src = module->source;
-  fputcOut('\n', outstream);
 
   while (*src != '\0') {
     if (*src == '\n') ++lineCnt;
@@ -1353,6 +1352,8 @@ void onNextTick(OpCode opCode) {
   case DBG_STEP: // fall through
   case DBG_HALT:
     debugger.isHalted = true;
+    setCurrentFrame(0);
+    printSource(line, 1);
     return processEvents(opCode);
   case DBG_STOP: break;
   }

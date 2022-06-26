@@ -412,36 +412,37 @@ static InterpretResult run() {
       }
     } BREAK;
     CASE(OP_DEFINE_GLOBAL) {
+      DBG_NEXT;
       ObjString *name = READ_STRING();
       tableSet(&vm.globals, name, peek(0));
       pop();
-      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_LOCAL) {
+      DBG_NEXT;
       uint8_t slot = READ_BYTE();
       frame->slots[slot] = peek(0);
-      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_REFERENCE) {
+      DBG_NEXT;
       uint8_t slot = READ_BYTE();
       assert(IS_REFERENCE(frame->slots[slot]));
       refSet(AS_REFERENCE(frame->slots[slot]), peek(0));
-      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_GLOBAL) {
+      DBG_NEXT;
       ObjString *name = READ_STRING();
       if (tableSet(&vm.globals, name, peek(0))) {
         tableDelete(&vm.globals, name);
         return runtimeError("Undefined variable '%s'.", name->chars);
       }
-      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_UPVALUE) {
+      DBG_NEXT;
       uint8_t slot = READ_BYTE();
       *frame->closure->upvalues[slot]->location = peek(0);
-      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_PROPERTY) {
+      DBG_NEXT;
       Table *tbl = NULL;
       Value value = pop(), obj = pop();
       ObjString *name = READ_STRING();
@@ -461,9 +462,9 @@ static InterpretResult run() {
       } else
         return runtimeError("Could not set '%s' to object.\n", name->chars);
 
-      DBG_NEXT;
     } BREAK;
     CASE(OP_SET_INDEXER) {
+      DBG_NEXT;
       Value value = pop(), key = pop(), obj = pop();
       Value method = objMethodNative(AS_OBJ(obj), copyString("__setitem__", 11));
       if (!IS_NIL(method)) {
@@ -474,13 +475,14 @@ static InterpretResult run() {
       }
     } BREAK;
     CASE(OP_EQUAL) {
+      DBG_NEXT;
       Value b = pop(), a = pop();
       push(BOOL_VAL(valuesEqual(a, b)));
-      DBG_NEXT;
     } BREAK;
-    CASE(OP_GREATER)     BINARY_OP(BOOL_VAL, >); DBG_NEXT; BREAK;
-    CASE(OP_LESS)        BINARY_OP(BOOL_VAL, <); DBG_NEXT; BREAK;
+    CASE(OP_GREATER) DBG_NEXT; BINARY_OP(BOOL_VAL, >); BREAK;
+    CASE(OP_LESS)    DBG_NEXT; BINARY_OP(BOOL_VAL, <); BREAK;
     CASE(OP_ADD) {
+      DBG_NEXT;
       if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
         concatenate();
       } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
@@ -488,11 +490,10 @@ static InterpretResult run() {
       } else {
         return runtimeError("Operands must be two numbers or two strings.");
       }
-      DBG_NEXT;
     } BREAK;
-    CASE(OP_SUBTRACT)    BINARY_OP(NUMBER_VAL, -); DBG_NEXT; BREAK;
-    CASE(OP_MULTIPLY)    BINARY_OP(NUMBER_VAL, *); DBG_NEXT; BREAK;
-    CASE(OP_DIVIDE)      BINARY_OP(NUMBER_VAL, /); DBG_NEXT; BREAK;
+    CASE(OP_SUBTRACT) DBG_NEXT; BINARY_OP(NUMBER_VAL, -); BREAK;
+    CASE(OP_MULTIPLY) DBG_NEXT; BINARY_OP(NUMBER_VAL, *); BREAK;
+    CASE(OP_DIVIDE)   DBG_NEXT; BINARY_OP(NUMBER_VAL, /); BREAK;
     CASE(OP_NOT)
       push(BOOL_VAL(isFalsey(pop()))); BREAK;
     CASE(OP_NEGATE)
@@ -502,29 +503,30 @@ static InterpretResult run() {
       push(NUMBER_VAL(-AS_NUMBER(pop())));
       BREAK;
     CASE(OP_PRINT) {
+      DBG_NEXT;
       ObjString *vlu = valueToString(pop());
       // dont use printf as a \0 in string should NOT terminate output
       const char *c = vlu->chars, *end = c + vlu->length;
       while(c < end) putc(*c++, stdout);
-      DBG_NEXT;
     } BREAK;
     CASE(OP_JUMP) {
+      DBG_NEXT;
       uint16_t offset = READ_SHORT();
       frame->ip += offset;
-      DBG_NEXT;
     } BREAK;
     CASE(OP_JUMP_IF_FALSE) {
+      DBG_NEXT;
       uint16_t offset = READ_SHORT();
       if (isFalsey(peek(0)))
         frame->ip += offset;
-      DBG_NEXT;
     } BREAK;
     CASE(OP_LOOP) {
+      DBG_NEXT;
       uint16_t offset = READ_SHORT();
       frame->ip -= offset;
-      DBG_NEXT;
     } BREAK;
     CASE(OP_CALL) {
+      DBG_NEXT;
       int argCount = READ_BYTE();
       if (!callValue(peek(argCount), argCount)) {
         return INTERPRET_RUNTIME_ERROR;
@@ -537,6 +539,7 @@ static InterpretResult run() {
       frame = &vm.frames[vm.frameCount -1];
     } BREAK;
     CASE(OP_INVOKE) {
+      DBG_NEXT;
       ObjString *method = READ_STRING();
       int argCount = READ_BYTE();
       if (!invoke(method, argCount)) {
@@ -546,6 +549,7 @@ static InterpretResult run() {
       BREAK;
     }
     CASE(OP_SUPER_INVOKE) {
+      DBG_NEXT;
       ObjString *method = READ_STRING();
       int argCount = READ_BYTE();
       ObjClass *superClass = AS_CLASS(pop());
@@ -565,6 +569,7 @@ static InterpretResult run() {
       closeUpvalues(vm.stackTop - 1);
       pop(); BREAK;
     CASE(OP_RETURN) {
+      DBG_NEXT;
       Value result = pop();
       closeUpvalues(frame->slots);
       vm.frameCount--;
@@ -575,7 +580,6 @@ static InterpretResult run() {
       }
 
       push(result);
-      DBG_NEXT;
       frame = &vm.frames[vm.frameCount -1];
     } BREAK;
     CASE(OP_EVAL_EXIT) {
@@ -583,10 +587,11 @@ static InterpretResult run() {
       return INTERPRET_OK;
     } BREAK;
     CASE(OP_CLASS)
-      push(OBJ_VAL(OBJ_CAST(newClass(READ_STRING()))));
       DBG_NEXT;
+      push(OBJ_VAL(OBJ_CAST(newClass(READ_STRING()))));
       BREAK;
     CASE(OP_INHERIT) {
+      DBG_NEXT;
       Value superClass = peek(1);
       if (!IS_CLASS(superClass))
         return runtimeError("Superclass must be a class.");
@@ -595,31 +600,31 @@ static InterpretResult run() {
       tableAddAll(&AS_CLASS(superClass)->methods,
                   &subClass->methods);
       pop(); // subclass;
-      DBG_NEXT;
     } BREAK;
     CASE(OP_METHOD)
-      defineMethod(READ_STRING());
       DBG_NEXT;
+      defineMethod(READ_STRING());
       BREAK;
     CASE(OP_DEFINE_DICT)
-      push(OBJ_VAL(OBJ_CAST(newDict())));
       DBG_NEXT;
+      push(OBJ_VAL(OBJ_CAST(newDict())));
       BREAK;
     CASE(OP_DICT_FIELD) {
+      DBG_NEXT;
       Table *fields = &AS_DICT(peek(1))->fields;
       tableSet(fields, READ_STRING(), pop());
-      DBG_NEXT;
     } BREAK;
     CASE(OP_DEFINE_ARRAY)
-      push(OBJ_VAL(OBJ_CAST(newArray())));
       DBG_NEXT;
+      push(OBJ_VAL(OBJ_CAST(newArray())));
       BREAK;
     CASE(OP_ARRAY_PUSH) {
+      DBG_NEXT;
       ValueArray *array = &AS_ARRAY(peek(1))->arr;
       pushValueArray(array, pop());
-      DBG_NEXT;
     } BREAK;
     CASE(OP_IMPORT_MODULE) {
+      DBG_NEXT;
       TRACE_MODULE_LOAD
       Value path = READ_CONSTANT();
       assert(IS_STRING(path));
@@ -627,7 +632,6 @@ static InterpretResult run() {
       TRACE_MODULE_LOADED
       if (importModule == NULL)
         return runtimeError("Failed to load script from: %s\n", AS_CSTRING(path));
-      DBG_NEXT;
     } BREAK;
     CASE(OP_IMPORT_VARIABLE) {
       ObjString *nameInExport = AS_STRING(READ_CONSTANT()),
